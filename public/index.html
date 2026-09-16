@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0c1018"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="GPU Monitor"><title data-i18n="GPU Observatory · 算力看板">GPU Observatory · 算力看板</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icons/icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/pwa.css"><script src="/i18n.js" defer></script><script src="/live-time.js" defer></script><script src="/pwa.js" defer></script><script src="/views.js" defer></script><script src="/app.js" defer></script><script src="/system.js" defer></script><script src="/slurm.js" defer></script></head>
+<body data-page="dashboard">
+<div class="workspace">
+  <header class="topbar">
+    <a class="brand" href="/"><span class="logo">G</span><span>GPU OBSERVATORY</span></a>
+    <div class="top-actions"><div class="live"><span id="live-dot" class="dot"></span><span id="refresh-state"><span data-i18n="连接中…">连接中…</span></span></div><span id="account">—</span><select class="language-switch" data-language-switch aria-label="语言" data-i18n-aria-label="语言"><option value="zh">中文</option><option value="en">English</option></select><button class="install-app" data-install-app type="button"><span data-i18n="安装应用">安装应用</span></button><button id="logout" class="ghost"><span data-i18n="退出">退出</span></button></div>
+  </header>
+  <main>
+    <nav class="view-tabs" aria-label="监控视图" data-i18n-aria-label="监控视图"><button id="view-gpu" class="view-tab selected" aria-pressed="true"><span data-i18n="GPU 概览">GPU 概览</span></button><button id="view-cpu" class="view-tab" aria-pressed="false">CPU</button><button id="view-memory" class="view-tab" aria-pressed="false"><span data-i18n="内存">内存</span></button><button id="view-slurm" class="view-tab" aria-pressed="false"><span data-i18n="Slurm 队列">Slurm 队列</span> <span id="slurm-tab-count" class="count">—</span></button></nav>
+    <div id="gpu-panel">
+    <section class="summary" aria-label="集群摘要" data-i18n-aria-label="集群摘要">
+      <div><span><span data-i18n="主机">主机</span></span><strong id="stat-hosts">—</strong></div>
+      <div><span>GPU</span><strong id="stat-gpus">—</strong></div>
+      <div><span><span data-i18n="用户数">用户数</span></span><strong id="stat-users">—</strong></div>
+      <div class="memory-summary"><span><span data-i18n="显存">显存</span></span><strong id="stat-memory">—</strong><small id="stat-memory-total"></small></div>
+    </section>
+    <div id="connection-error" class="notice" role="status" hidden></div>
+    <section class="toolbar">
+      <div class="view-label"><span data-i18n="全部主机">全部主机</span> <span id="host-count" class="count">0</span></div>
+      <div class="filters"><input id="search" type="search" aria-label="搜索主机、用户、进程或 PID" data-i18n-aria-label="搜索主机、用户、进程或 PID" placeholder="主机 / 用户 / 进程 / PID" data-i18n-placeholder="主机 / 用户 / 进程 / PID"><label class="checkbox"><input id="free-only" type="checkbox"><span data-i18n="仅空闲">仅空闲</span></label><button id="expand-all" class="small-button"><span data-i18n="展开进程">展开进程</span></button><button id="collapse-all" class="small-button"><span data-i18n="收起全部">收起全部</span></button></div>
+    </section>
+    <div class="fleet-wrap">
+      <table class="fleet-table" aria-label="GPU 总览" data-i18n-aria-label="GPU 总览">
+        <colgroup><col class="col-gpu"><col class="col-util"><col class="col-memory"><col class="col-temp"><col class="col-power"><col class="col-users"><col class="col-process"></colgroup>
+        <thead><tr><th scope="col">GPU</th><th scope="col"><span data-i18n="利用率">利用率</span></th><th scope="col"><span data-i18n="显存">显存</span> <span class="unit">GiB</span></th><th scope="col" class="optional-col"><span data-i18n="温度">温度</span></th><th scope="col" class="optional-col"><span data-i18n="功耗">功耗</span></th><th scope="col"><span data-i18n="用户">用户</span></th><th scope="col"><span data-i18n="进程">进程</span> <span class="unit"><span data-i18n="点击展开">点击展开</span></span></th></tr></thead>
+        <tbody id="hosts"><tr><td colspan="7" class="empty"><span data-i18n="正在加载…">正在加载…</span></td></tr></tbody>
+      </table>
+    </div>
+    <footer class="page-foot"><span><span data-i18n="每 5 秒刷新 · 30 秒未上报标记离线">每 5 秒刷新 · 30 秒未上报标记离线</span></span><span><span data-i18n="点击主机名折叠 · 展开状态会保留">点击主机名折叠 · 展开状态会保留</span></span></footer>
+    </div>
+    <section id="cpu-panel" aria-label="CPU 使用情况" data-i18n-aria-label="CPU 使用情况" hidden>
+      <div class="resource-summary" id="cpu-summary"></div>
+      <div class="resource-toolbar"><input id="cpu-search" type="search" aria-label="搜索 CPU 主机、用户或进程" data-i18n-aria-label="搜索 CPU 主机、用户或进程" placeholder="主机 / 用户 / 进程 / PID" data-i18n-placeholder="主机 / 用户 / 进程 / PID"><span><span data-i18n="每 5 秒更新 · 点击主机展开">每 5 秒更新 · 点击主机展开</span></span></div>
+      <div id="cpu-hosts" class="resource-hosts"><p class="empty"><span data-i18n="等待主机数据…">等待主机数据…</span></p></div>
+      <footer class="page-foot"><span><span data-i18n="主机利用率范围 0–100%；进程 CPU 的 100% 表示占满一个逻辑核心。">主机利用率范围 0–100%；进程 CPU 的 100% 表示占满一个逻辑核心。</span></span><span><span data-i18n="仅已接入的 GPU 主机">仅已接入的 GPU 主机</span></span></footer>
+    </section>
+    <section id="memory-panel" aria-label="系统内存使用情况" data-i18n-aria-label="系统内存使用情况" hidden>
+      <div class="resource-summary" id="memory-summary"></div>
+      <div class="resource-toolbar"><input id="memory-search" type="search" aria-label="搜索内存主机、用户或进程" data-i18n-aria-label="搜索内存主机、用户或进程" placeholder="主机 / 用户 / 进程 / PID" data-i18n-placeholder="主机 / 用户 / 进程 / PID"><span><span data-i18n="系统 RAM · 每 5 秒更新">系统 RAM · 每 5 秒更新</span></span></div>
+      <div id="memory-hosts" class="resource-hosts"><p class="empty"><span data-i18n="等待主机数据…">等待主机数据…</span></p></div>
+      <footer class="page-foot"><span><span data-i18n="已用 = 总量 − 可用量；进程 RSS 含共享页，不能直接相加作为主机已用内存。">已用 = 总量 − 可用量；进程 RSS 含共享页，不能直接相加作为主机已用内存。</span></span><span><span data-i18n="仅已接入的 GPU 主机">仅已接入的 GPU 主机</span></span></footer>
+    </section>
+    <section id="slurm-panel" aria-label="Slurm 队列" data-i18n-aria-label="Slurm 队列" hidden>
+      <div id="slurm-fetch-error" class="notice" role="status" hidden></div>
+      <div class="slurm-toolbar"><input id="slurm-search" type="search" aria-label="搜索 Slurm 作业、用户或分区" data-i18n-aria-label="搜索 Slurm 作业、用户或分区" placeholder="作业 ID / 用户 / 分区 / 原因" data-i18n-placeholder="作业 ID / 用户 / 分区 / 原因"><select id="slurm-state" aria-label="Slurm 作业状态" data-i18n-aria-label="Slurm 作业状态"><option value="all" data-i18n="全部状态">全部状态</option><option value="PENDING" data-i18n="排队中">排队中</option><option value="RUNNING" data-i18n="运行中">运行中</option><option value="other" data-i18n="其他状态">其他状态</option></select></div>
+      <div id="slurm-sources"><p class="empty"><span data-i18n="正在读取队列缓存…">正在读取队列缓存…</span></p></div>
+      <footer class="page-foot"><span><span data-i18n="每 60 秒采集 · ≈ 时长由前端每秒推算">每 60 秒采集 · ≈ 时长由前端每秒推算</span></span><span><span data-i18n="优先级不等于实际启动顺序">优先级不等于实际启动顺序</span></span></footer>
+    </section>
+  </main>
+</div>
+</body></html>
