@@ -22,7 +22,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def request_json(origin, path, body=None):
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(origin + path, data=data, headers={'Content-Type': 'application/json'})
+    req = urllib.request.Request(origin + path, data=data, headers={'Content-Type': 'application/json', 'User-Agent': 'gpu-observatory-installer/2.0'})
     with urllib.request.build_opener(NoRedirect()).open(req, timeout=30) as response:
         content = response.read(2 * 1024 * 1024 + 1)
         if len(content) > 2 * 1024 * 1024:

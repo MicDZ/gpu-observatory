@@ -18,6 +18,15 @@ class InstallerTests(unittest.TestCase):
         scope = runpy.run_path(str(INSTALLER), init_globals={'__SETTINGS_JSON__': json.dumps(settings or {})})
         return scope, scope['main'].__globals__
 
+    def test_installer_identifies_itself_to_https_ingress(self):
+        scope, _ = self.load()
+        with patch('urllib.request.build_opener') as build:
+            build.return_value.open.return_value.__enter__.return_value.read.return_value=b'{}'
+            self.assertEqual(scope['request_json']('https://monitor.example.com','/api/agent-package'),{})
+            request=build.return_value.open.call_args.args[0]
+            self.assertEqual(request.get_header('User-agent'),'gpu-observatory-installer/2.0')
+            self.assertEqual(request.full_url,'https://monitor.example.com/api/agent-package')
+
     def test_rejects_unsafe_origins_and_package_paths(self):
         scope, _ = self.load()
         for origin in ['http://example.com', 'https://user:secret@example.com', 'https://example.com/path', 'https://example.com#token']:
