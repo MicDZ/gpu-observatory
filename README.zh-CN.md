@@ -1,3 +1,5 @@
+<p><img src="public/icons/icon.svg" width="80" height="80" alt="GPU Observatory icon"></p>
+
 # GPU Observatory
 
 **在一个紧凑的面板里，查看多台主机的显卡由哪个用户、哪个进程占用。**

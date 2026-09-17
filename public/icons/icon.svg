@@ -1,1 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="102" fill="#8ee3b4"/><path d="M369 143 A160 160 0 1 0 387 348 L338 313 A100 100 0 1 1 327 185 Z" fill="#14251b"/><path d="M256 236H413V347H355V294H256Z" fill="#14251b"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">GPU Observatory</title>
+  <desc id="desc">A mint processor-shaped G and a blue observation node on a dark navy tile.</desc>
+  <rect width="512" height="512" rx="112" fill="#0c1420"/>
+  <path d="M344 152 L312 120 L200 120 L120 200 L120 312 L200 392 L312 392 L392 312 L392 264 L272 264" fill="none" stroke="#8ee3b4" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="392" cy="152" r="20" fill="#78bcff"/>
+</svg>

@@ -1,3 +1,5 @@
+<p><img src="public/icons/icon.svg" width="80" height="80" alt="GPU Observatory icon"></p>
+
 # GPU Observatory
 
 **Know who is using your GPUs — across every machine, in one compact dashboard.**
