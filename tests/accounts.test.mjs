@@ -94,3 +94,37 @@ test('migration, expiry, disabling and password changes survive restart without 
  assert.equal((await request('/api/me','GET',null,a3)).status,401);
  await f.login('alice','admin-reset-password');
 });
+
+test('admin inventory exposes only owner, device name and GPU models; preserves last successful models without broadening telemetry access',async t=>{
+ const f=await fixture(t),{request,admin}=f;
+ const alice=await f.addUser('alice'),a=await f.login('alice','safe-password-alice');
+ const add=async name=>(await(await request('/api/devices','POST',{name},a)).json()).device;
+ const d=await add('Alice workstation');await add('Not installed yet');
+ const link=await(await request('/api/devices/'+d.id+'/install','POST',{},a)).json();
+ const enrolled=await(await request('/api/enroll','POST',{token:installToken(link)})).json();
+ const auth={Authorization:'Bearer '+enrolled.token,'X-Host-Id':d.id};
+ const gpu=(name,index)=>({uuid:'GPU-inventory-'+index,index,name,utilization:93,memoryUsed:4500,memoryTotal:8192,temperature:61,powerDraw:220,processesAvailable:true,processes:[{pid:54321,username:'private-process-user',command:'private-command',gpuMemory:4500}]});
+ const report={...packet(d.id),hostname:'private-hostname',gpus:[gpu('NVIDIA A100',0),gpu('NVIDIA A100',1),gpu('NVIDIA H100',2)]};
+ assert.equal((await request('/api/ingest','POST',report,null,auth)).status,200);
+ assert.equal((await request('/api/users/devices')).status,401);
+ assert.equal((await request('/api/users/devices','GET',null,a)).status,403);
+ assert.equal((await request('/api/users/devices','GET',null,null,auth)).status,401);
+ const inventory=await(await request('/api/users/devices','GET',null,admin)).json();
+ assert.deepEqual(Object.keys(inventory),['devices']);
+ for(const row of inventory.devices)assert.deepEqual(Object.keys(row).sort(),['gpuModels','name','username']);
+ assert.deepEqual(inventory.devices.find(row=>row.name===d.name),{username:'alice',name:d.name,gpuModels:['NVIDIA A100','NVIDIA H100']});
+ assert.deepEqual(inventory.devices.find(row=>row.name==='Not installed yet').gpuModels,[]);
+ assert.ok(!JSON.stringify(inventory).includes('private-'));
+ assert.deepEqual((await(await request('/api/snapshot','GET',null,admin)).json()).hosts.map(h=>h.id),['legacy']);
+ assert.equal((await request('/api/devices/'+d.id,'PATCH',{name:'Renamed workstation'},a)).status,200);
+ assert.equal((await request('/api/ingest','POST',{...packet(d.id),error:'GPU unavailable'},null,auth)).status,200);
+ f.advance(31000);
+ assert.equal((await request('/api/users/'+alice.id,'PATCH',{disabled:true},admin)).status,200);
+ await f.restart();const admin2=await f.login('admin','initial-admin-password');
+ const after=await(await request('/api/users/devices','GET',null,admin2)).json();
+ assert.deepEqual(after.devices.find(row=>row.name==='Renamed workstation').gpuModels,['NVIDIA A100','NVIDIA H100']);
+ assert.equal((await request('/api/users/'+alice.id,'PATCH',{disabled:false},admin2)).status,200);
+ const a2=await f.login('alice','safe-password-alice');
+ assert.equal((await request('/api/devices/'+d.id,'DELETE',null,a2)).status,200);
+ assert.ok(!(await(await request('/api/users/devices','GET',null,admin2)).json()).devices.some(row=>row.name==='Renamed workstation'));
+});

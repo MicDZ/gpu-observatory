@@ -1,5 +1,12 @@
 (() => {
   const messages = {
+  "所有用户的设备": "All users’ devices",
+  "仅展示设备名称和最近一次成功上报的 GPU 型号，不含实时指标。": "Device names and GPU models from the last successful report only. No live metrics.",
+  "刷新清单": "Refresh inventory",
+  "所属用户": "Owner",
+  "GPU 型号": "GPU model",
+  "尚无型号信息": "No model information yet",
+  "暂无已添加的设备": "No devices have been added",
   "操作过于频繁，请稍后重试": "Too many changes. Please try again shortly",
   "我的设备 · GPU Observatory": "My devices · GPU Observatory",
   "我的设备": "My devices",

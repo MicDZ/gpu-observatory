@@ -1,6 +1,11 @@
 const shellQuote=value=>"'"+value.replaceAll("'","'\\''")+"'";
 import { passwordFields, checkPassword, safeUser, fail } from './accounts.mjs';
 
+export function gpuModelNames(sample) {
+  const names=sample?.gpuModels ?? sample?.gpus?.map(g=>g.name) ?? [];
+  return [...new Set(names.filter(name=>typeof name==='string' && name.trim()).map(name=>name.trim()))].sort();
+}
+
 export function managementRoutes({accounts, actor, json, reply, originOK, invalidate, snapshots, removeSnapshot, now, origin}) {
   return async function route(req,res,path) {
     if (!/^\/api\/(me|devices|users)(\/|$)/.test(path)) return false;
@@ -36,6 +41,14 @@ export function managementRoutes({accounts, actor, json, reply, originOK, invali
       }
       if(!match[2]&&req.method==='PATCH'){const body=await read();accounts.renameDevice(uid,hostId,body.name);return send(200,{ok:true});}
       if(!match[2]&&req.method==='DELETE'){accounts.deleteDevice(uid,hostId);removeSnapshot(hostId);return send(200,{ok:true});}
+    }
+    if(path==='/api/users/devices'&&req.method==='GET'){
+      accounts.requireUser(uid,true);
+      const owners=new Map(accounts.users().map(user=>[user.id,user.username]));
+      // Explicit inventory-only projection: never return snapshots or credentials.
+      const devices=accounts.allDevices().map(d=>({username:owners.get(d.ownerId)||'',name:d.name,gpuModels:gpuModelNames(snapshots.get(d.id))}));
+      devices.sort((a,b)=>a.username.localeCompare(b.username)||a.name.localeCompare(b.name));
+      return send(200,{devices});
     }
     if(path==='/api/users'&&req.method==='GET'){
       accounts.requireUser(uid,true);return send(200,{users:accounts.users()});

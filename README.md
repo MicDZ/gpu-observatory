@@ -12,7 +12,7 @@ GPU Observatory is a self-hosted, push-based monitor for NVIDIA GPU fleets, CPU/
 
 ## Personal workspaces and one-command enrollment
 
-Administrators create user accounts. Each user has a private **My devices** page to add, rename and remove their GPU servers. **Add device** generates a one-command installer bound to this hub: copy it onto the GPU server to install dependencies, enroll with a short-lived single-use link and start an isolated PM2 reporter, without sudo.
+Administrators create user accounts and can view a limited device inventory (owner, device name and GPU models only). Each user has a private **My devices** page to add, rename and remove their GPU servers. **Add device** generates a one-command installer bound to this hub: copy it onto the GPU server to install dependencies, enroll with a short-lived single-use link and start an isolated PM2 reporter, without sudo.
 
 ![User and device management with fictional demo accounts](docs/images/devices.png)
 

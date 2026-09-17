@@ -2,6 +2,7 @@
   if(document.body.dataset.page!=='management')return;
   const $=id=>document.getElementById(id),T=(key,values)=>window.I18n.t(key,values);
   const node=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
+  let inventory=[],inventoryLoaded=false,inventoryLoading=false;
   let me,devices=[],users=[],installation=null,action=null,loading=false;
   async function api(path,method='GET',body){
     const response=await fetch(path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,cache:'no-store'});
@@ -38,12 +39,27 @@
     }
     $('user-list').replaceChildren(root);
   }
+  function renderInventory(){
+    const rows=document.createDocumentFragment();
+    for(const d of inventory){
+      const row=node('tr');row.append(node('td','',d.username),node('td','',d.name),node('td','',d.gpuModels.length?d.gpuModels.join(' / '):T('尚无型号信息')));rows.append(row);
+    }
+    if(!inventory.length){const row=node('tr'),cell=node('td','muted',T('暂无已添加的设备'));cell.colSpan=3;row.append(cell);rows.append(row);}
+    $('inventory-list').replaceChildren(rows);
+  }
+  async function loadInventory(){
+    if(me?.role!=='admin'||inventoryLoading)return;
+    inventoryLoading=true;$('refresh-inventory').disabled=true;
+    try{inventory=(await api('/api/users/devices')).devices;inventoryLoaded=true;renderInventory();}
+    catch(error){message(error);}finally{inventoryLoading=false;$('refresh-inventory').disabled=false;}
+  }
+  $('refresh-inventory').addEventListener('click',loadInventory);
   async function load(){
     if(loading)return;loading=true;
     try{
       if(!me){me=(await api('/api/me')).user;$('identity').textContent=me.username;$('users-section').hidden=me.role!=='admin';}
       devices=(await api('/api/devices')).devices;renderDevices();
-      if(me.role==='admin'){users=(await api('/api/users')).users;renderUsers();}
+      if(me.role==='admin'){users=(await api('/api/users')).users;renderUsers();if(!inventoryLoaded)await loadInventory();}
     }catch(error){message(error);}finally{loading=false;}
   }
   function openAction(value){
@@ -63,7 +79,7 @@
     if(b.disabled)return;b.disabled=true;
     const errorNode=form.querySelector('.error');if(errorNode)errorNode.textContent='';
     try{await run();message(null);}catch(error){if(errorNode&&(!form.closest('dialog')||form.closest('dialog').open))window.I18n.bind(errorNode,error.message);else message(error);}
-    finally{b.disabled=false;await load();}
+    finally{b.disabled=false;inventoryLoaded=false;await load();}
   }
   for(const b of document.querySelectorAll('.close-dialog'))b.addEventListener('click',()=>b.closest('dialog').close());
   $('install-dialog').addEventListener('close',()=>{installation=null;$('install-command').value='';});
@@ -82,6 +98,6 @@
     catch{window.I18n.bind($('install-dialog').querySelector('.error'),'无法自动复制，请手动选择并复制安装命令');$('install-command').focus();$('install-command').select();}
   });
   $('sign-out').addEventListener('click',async()=>{try{await api('/api/logout','POST',{});location.replace('/');}catch(error){message(error);}});
-  document.addEventListener('ui-language',()=>{renderDevices();if(me?.role==='admin')renderUsers();if(installation)$('install-expiry').textContent=T('过期时间：{time}',{time:new Date(installation.expiresAt).toLocaleString(window.I18n.locale())});});
+  document.addEventListener('ui-language',()=>{renderDevices();if(me?.role==='admin'){renderUsers();renderInventory();}if(installation)$('install-expiry').textContent=T('过期时间：{time}',{time:new Date(installation.expiresAt).toLocaleString(window.I18n.locale())});});
   load();setInterval(load,15000);
 })();

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { normalizeSlurm } from './slurm/schema.mjs';
 import { normalizeSystem } from './system-schema.mjs';
 import { createAccounts, checkPassword, safeUser } from './accounts.mjs';
-import { managementRoutes } from './management.mjs';
+import { managementRoutes, gpuModelNames } from './management.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 export const digest = value => createHash('sha256').update(value).digest('hex');
@@ -200,7 +200,7 @@ export function createMonitor(config, options = {}) {
         recent.add(snapshot.reportId);
         if (recent.size > 128) recent.delete(recent.values().next().value);
         // Host clocks may drift; freshness is measured only by the hub's receipt time.
-        snapshots.set(host.id, { ...snapshot, id: host.id, receivedAt: now(), clockSkewSeconds: Math.round((snapshot.collectedAt - now()) / 1000) });
+        snapshots.set(host.id, { ...snapshot, gpuModels:gpuModelNames(snapshot.error ? snapshots.get(host.id) : snapshot), id: host.id, receivedAt: now(), clockSkewSeconds: Math.round((snapshot.collectedAt - now()) / 1000) });
         persist();
         return reply(res, 200, { ok: true });
       }

@@ -2,6 +2,8 @@
 
 GPU Observatory 2 adds private user workspaces. Open **My devices** in the dashboard header, or visit `/devices` after login. Each user sees only their own GPU/CPU/RAM data and devices. Administrators manage accounts on the same page; admin status does not automatically expose other users' telemetry. There is no public self-registration.
 
+Administrators can open **All users’ devices** below the user list to see a read-only inventory with exactly three fields: owner username, device display name and distinct GPU model names. Models come from the last successful GPU report and remain available when a device goes offline or collection fails. Devices without known models show a placeholder. Use **Refresh inventory** to reload this list; it does not poll live telemetry. No utilization, memory, processes, hardware identifiers, report times or credentials are included. Ordinary users cannot access this inventory endpoint.
+
 ## Administrator workflow
 
 1. Sign in with the existing dashboard account. During upgrade it becomes the initial administrator automatically.
