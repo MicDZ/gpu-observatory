@@ -13,11 +13,11 @@ if (document.body.dataset.page === 'login') {
       const response = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
       const result = await response.json();
       if (!response.ok) throw Object.assign(new Error('Sign-in failed'), { userMessage: result.error || '登录失败' });
-      location.replace('/');
+      location.replace(location.pathname==='/devices'||result.onboarding?'/devices':'/');
     } catch (error) { window.I18n.bind($('login-error'), error.userMessage || '连接失败，请重试'); }
     finally { button.disabled = false; }
   });
-} else {
+} else if (document.body.dataset.page === 'dashboard') {
   let snapshot = null, shownStatuses = '';
   const statusKey = () => snapshot?.hosts.map(h => Time.sourceStatus(h, Time.now())).join('|') || '';
   const stored = name => { try { return new Set(JSON.parse(sessionStorage.getItem(name)) || []); } catch { return new Set(); } };

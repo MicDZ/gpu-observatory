@@ -36,14 +36,14 @@ test('language switches immediately, persists across reload, interpolates safely
 
 test('all marked static copy and explicit dynamic translation calls have English translations',()=>{
   const {api}=load();
-  for(const name of ['index.html','login.html','offline.html']){
+  for(const name of ['index.html','login.html','offline.html','devices.html']){
     const html=readFileSync(new URL('../public/'+name,import.meta.url),'utf8');
     for(const m of html.matchAll(/data-i18n(?:-(?:placeholder|aria-label|title))?="([^"]+)"/g)){
       const key=m[1].replaceAll('&quot;','"').replaceAll('&amp;','&');
       assert.ok(Object.hasOwn(api.messages,key),`${name}: ${key}`);
     }
   }
-  for(const name of ['app.js','system.js','slurm.js','pwa.js','live-time.js']){
+  for(const name of ['app.js','system.js','slurm.js','pwa.js','live-time.js','management.js']){
     const js=readFileSync(new URL('../public/'+name,import.meta.url),'utf8');
     for(const m of js.matchAll(/\bT\((['"])(.*?)\1/g))if(/[\u4e00-\u9fff]/.test(m[2]))assert.ok(Object.hasOwn(api.messages,m[2]),`${name}: ${m[2]}`);
   }

@@ -92,6 +92,9 @@ A PM2 save is not an OS boot hook. See section 6 for persistence. Sessions are i
 
 ## 4. Enroll the first GPU host
 
+**Recommended web flow:** after the hub is reachable over HTTPS, sign in and open **My devices → Add device**. Copy the generated one-command installer to the intended host. It uses a 15-minute single-use enrollment link and isolated user-space PM2; no hub restart is needed. Administrators create other users from **User management** on that page. See [user management, migration and recovery](USER_MANAGEMENT.md). The CLI workflow below remains available for manual/admin-controlled deployments.
+
+
 On the hub, choose a stable lowercase source ID and optional display name:
 
 ```sh
@@ -164,7 +167,7 @@ Test recovery only for this project's isolated PM2 namespace, and only when a br
 1. Read the current tunnel startup log and confirm the new URL returns `/healthz` with `{"ok":true}`.
 2. On the hub, run `node scripts/manage.mjs set-origin --state "$HUB_STATE" --origin https://NEW-URL.trycloudflare.com`. This updates the login origin and local enrollment files while preserving password and token identities.
 3. Restart **only** `gpu-dashboard`.
-4. Securely transfer each updated enrollment file to its existing reporter config path. Reapply mode 0600. Restart `gpu-reporter` or `slurm-reporter` using that reporter's own PM2 helper. The command does not update remote hosts automatically.
+4. For web-enrolled devices, update the `url` in each remote private `agent-config.json` and restart its reporter; the hub stores only their token hashes, not a transferable enrollment file. For CLI-enrolled devices, securely transfer each updated enrollment file to its existing reporter config path. Reapply mode 0600. Restart `gpu-reporter` or `slurm-reporter` using that reporter's own PM2 helper. The command does not update remote hosts automatically.
 5. Verify all expected sources become fresh. Tell the user the new URL. Bookmarks and installed desktop apps point to the old origin; update or reinstall them. No-domain deployment is convenient to try, but a stable custom domain avoids this recurring work.
 
 ## 8. Acceptance checks and handoff

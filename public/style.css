@@ -12,3 +12,5 @@
 .time-cell{min-width:88px;font-variant-numeric:tabular-nums;white-space:nowrap}.timer-estimate{color:var(--blue)}.timer-stale{color:var(--muted)}@media(max-width:700px){.queue-table{min-width:800px}}
 
 .gpu-row>td{height:27px;padding-top:2px;padding-bottom:2px}.process-toggle{min-height:20px}.host-line{height:26px}
+
+.top-actions a.ghost{color:#a0dcc3;text-decoration:none;font-size:12px}

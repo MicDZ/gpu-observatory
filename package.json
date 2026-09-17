@@ -1,6 +1,6 @@
 {
   "name": "gpu-observatory",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "A private push-based GPU, CPU, memory and Slurm dashboard.",
   "license": "MIT",

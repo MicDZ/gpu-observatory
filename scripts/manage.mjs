@@ -3,7 +3,7 @@
 import { parseArgs } from 'node:util';
 import { randomBytes, scryptSync, createHash } from 'node:crypto';
 import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, readdirSync, chmodSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
 const { values: o, positionals: args } = parseArgs({allowPositionals:true, options:{
@@ -15,6 +15,7 @@ const usage = `Usage: node scripts/manage.mjs COMMAND [ID] [options]
   init --origin https://monitor.example.com --username admin
   add-host gpu-01 [--name "GPU 01"]
   add-slurm cluster-01 --user alice [--scope mine|visible] [--visibility account-visible|private-jobs]
+  reset-password USERNAME (stop hub first, then restart)
   set-origin --origin https://new-host.example.com
 Options: --state DIRECTORY (default ~/.local/share/gpu-observatory-hub)
          --port 8787 (init), --interval 60 (add-slurm)
@@ -41,7 +42,7 @@ try{
     if(existsSync(path)||existsSync(join(dir,'login-credentials.txt')))throw Error('Refusing to replace existing credentials');
     for(const d of [dir,join(dir,'data'),join(dir,'enrollment')]){mkdirSync(d,{recursive:true,mode:0o700});chmodSync(d,0o700);}
     const password=randomBytes(24).toString('base64url'),salt=randomBytes(24).toString('hex');
-    const config={username,passwordSalt:salt,passwordHash:scryptSync(password,salt,64).toString('hex'),publicOrigin,secureCookies:publicOrigin.startsWith('https:'),port,stateFile:join(dir,'data/snapshots.json'),slurmStateFile:join(dir,'data/slurm-snapshots.json'),hosts:[],slurmSources:[]};
+    const config={username,passwordSalt:salt,passwordHash:scryptSync(password,salt,64).toString('hex'),publicOrigin,secureCookies:publicOrigin.startsWith('https:'),port,accountsFile:join(dir,'accounts.json'),stateFile:join(dir,'data/snapshots.json'),slurmStateFile:join(dir,'data/slurm-snapshots.json'),hosts:[],slurmSources:[]};
     writeFileSync(join(dir,'login-credentials.txt'),`Username: ${username}\nPassword: ${password}\n`,{mode:0o600,flag:'wx'});
     save(path,config);
     console.log('Initialized hub. Read login-credentials.txt privately; values are not printed.');
@@ -64,6 +65,18 @@ try{
     }
     writeFileSync(file,JSON.stringify(enrollment,null,2)+'\n',{mode:0o600,flag:'wx'});save(path,config);
     console.log(`Enrolled ${id}. Transfer only enrollment/${id}.json to that reporter; restart the hub.`);
+  }else if(command==='reset-password'){
+    const config=read(path),accountsFile=config.accountsFile||join(dirname(config.stateFile),'accounts.json');
+    if(!existsSync(accountsFile))throw Error('Start the upgraded hub once to migrate accounts, then stop it before resetting a password');
+    const accounts=read(accountsFile),user=accounts.users.find(u=>u.username===args[1]);
+    if(!user)throw Error('User not found');
+    const password=randomBytes(24).toString('base64url'),salt=randomBytes(24).toString('hex');
+    user.passwordSalt=salt;user.passwordHash=scryptSync(password,salt,64).toString('hex');
+    accounts.tickets=accounts.tickets.filter(t=>t.ownerId!==user.id);
+    save(accountsFile,accounts);
+    const credentials=join(dir,'reset-login-credentials.txt');
+    writeFileSync(credentials,`Username: ${user.username}\nPassword: ${password}\n`,{mode:0o600});chmodSync(credentials,0o600);
+    console.log('Password reset. Read reset-login-credentials.txt privately, then restart the hub. Values were not printed.');
   }else if(command==='set-origin'){
     const publicOrigin=origin(),config=read(path);config.publicOrigin=publicOrigin;config.secureCookies=publicOrigin.startsWith('https:');
     for(const f of readdirSync(join(dir,'enrollment')).filter(f=>f.endsWith('.json'))){const p=join(dir,'enrollment',f),e=read(p);e.url=publicOrigin+(e.sourceId?'/api/slurm/ingest':'/api/ingest');save(p,e);}

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Install a checksum-verified Node 22 binary in the user's monitor directory."""
 import hashlib
+import os
 from pathlib import Path
 import platform
 import re
 import subprocess
 import urllib.request
 
-root = Path.home() / '.local/share/gpu-monitor'
+root = Path(os.environ.get('GPU_MONITOR_ROOT', str(Path.home() / '.local/share/gpu-monitor'))).expanduser().resolve()
 root.mkdir(parents=True, exist_ok=True)
 arch = {'x86_64': 'x64', 'aarch64': 'arm64'}[platform.machine()]
 base = 'https://nodejs.org/dist/latest-v22.x/'

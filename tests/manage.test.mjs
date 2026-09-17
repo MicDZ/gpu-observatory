@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync,statSync,rmSync} from 'node:fs';
+import {mkdtempSync,readFileSync,statSync,rmSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
@@ -25,4 +25,9 @@ test('fresh setup, private enrollment and URL migration preserve identities and 
  assert.equal(read('enrollment/cluster-01.json').url,'https://second.example.com/api/slurm/ingest');
  assert.equal(read('config.json').passwordHash,config.passwordHash);
  assert.equal(read('config.json').secureCookies,true);
+ const accountsFile=join(state,'accounts.json');
+ writeFileSync(accountsFile,JSON.stringify({version:1,users:[{id:'legacy-admin',username:'admin',passwordHash:config.passwordHash,passwordSalt:config.passwordSalt}],devices:[],tickets:[]}));
+ assert.equal(run('reset-password','admin').status,0);
+ assert.notEqual(read('accounts.json').users[0].passwordHash,config.passwordHash);
+ assert.equal(statSync(join(state,'reset-login-credentials.txt')).mode&0o777,0o600);
 });

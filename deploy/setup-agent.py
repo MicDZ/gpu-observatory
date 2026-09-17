@@ -8,14 +8,14 @@ import shutil
 import subprocess
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--prepare', action='store_true', help='Install dependencies only; do not enroll or start')
 parser.add_argument('--boot', action='store_true', help='Add a user crontab @reboot hook (Linux, where permitted)')
 args = parser.parse_args()
 
-root = Path.home() / '.local/share/gpu-monitor'
+root = Path(os.environ.get('GPU_MONITOR_ROOT', str(Path.home() / '.local/share/gpu-monitor'))).expanduser().resolve()
 root.mkdir(parents=True, exist_ok=True)
 root.chmod(0o700)
 config_path = root / 'agent-config.json'
-config_path.chmod(0o600)
 if (root / 'node/bin/node').exists():
     os.environ['PATH'] = str(root / 'node/bin') + ':' + os.environ.get('PATH', '')
 node = shutil.which('node')
@@ -32,7 +32,11 @@ if not (root / 'venv/bin/pip').exists():
 # Reconcile all pinned dependencies on upgrades.
 subprocess.run([python, '-m', 'pip', 'install', '-r', str(root / 'requirements.txt')], check=True)
 if not pm2.exists():
-    subprocess.run([npm, 'install', '--prefix', str(root / 'runtime'), 'pm2@6', '--no-audit', '--no-fund'], check=True)
+    subprocess.run([npm, 'install', '--prefix', str(root / 'runtime'), 'pm2@6', '--ignore-scripts', '--no-audit', '--no-fund'], check=True)
+if args.prepare:
+    print('Agent dependencies ready. No reporter started.')
+    raise SystemExit(0)
+config_path.chmod(0o600)
 pm2_home = root / 'pm2'
 pm2_home.mkdir(mode=0o700, exist_ok=True)
 logs = root / 'logs'
@@ -44,6 +48,10 @@ eco = {'apps': [{'name': 'gpu-reporter', 'script': str(root / 'agent.py'), 'inte
                 'time': True, 'kill_timeout': 5000, 'env': {'PYTHONUNBUFFERED': '1'}}]}
 eco_path = root / 'ecosystem.json'
 eco_path.write_text(json.dumps(eco, indent=2) + '\n')
+import shlex
+helper = root / 'pm2.sh'
+helper.write_text('#!/bin/sh\nexport PATH=' + shlex.quote(str(Path(node).parent) + ':/usr/local/bin:/usr/bin:/bin') + '\nexport PM2_HOME=' + shlex.quote(str(pm2_home)) + '\nexec ' + shlex.quote(node) + ' ' + shlex.quote(str(pm2)) + ' "$@"\n')
+helper.chmod(0o700)
 env = dict(os.environ, PM2_HOME=str(pm2_home))
 subprocess.run([node, str(pm2), 'startOrRestart', str(eco_path)], check=True, env=env)
 subprocess.run([node, str(pm2), 'save'], check=True, env=env)
@@ -61,8 +69,8 @@ previous = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
 if previous.returncode and 'no crontab' not in previous.stderr.lower():
     raise SystemExit('Cannot inspect user crontab: ' + previous.stderr)
 lines = previous.stdout.splitlines()
-marker = '# gpu-monitor-managed-boot'
-lines = [line for line in lines if marker not in line]
+marker = '# gpu-monitor-managed-boot' if root == (Path.home() / '.local/share/gpu-monitor').resolve() else '# gpu-monitor-managed-boot-' + __import__('hashlib').sha256(str(root).encode()).hexdigest()[:12]
+lines = [line for line in lines if not line.rstrip().endswith(' ' + marker)]
 lines.append('@reboot ' + shlex.quote(str(startup)) + ' >> ' + shlex.quote(str(logs / 'boot.log')) + ' 2>&1 ' + marker)
 subprocess.run(['crontab', '-'], input='\n'.join(lines) + '\n', text=True, check=True)
 print('Installed user PM2 reporter and @reboot recovery; no system files changed.')

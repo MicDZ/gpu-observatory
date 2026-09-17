@@ -10,6 +10,14 @@ GPU Observatory is a self-hosted, push-based monitor for NVIDIA GPU fleets, CPU/
 
 *All screenshots use an isolated synthetic demo. Hostnames, usernames, jobs and metrics are invented; no live infrastructure is shown.*
 
+## Personal workspaces and one-command enrollment
+
+Administrators create user accounts. Each user has a private **My devices** page to add, rename and remove their GPU servers. **Add device** generates a one-command installer bound to this hub: copy it onto the GPU server to install dependencies, enroll with a short-lived single-use link and start an isolated PM2 reporter, without sudo.
+
+![User and device management with fictional demo accounts](docs/images/devices.png)
+
+[User management and upgrade guide](docs/USER_MANAGEMENT.md) covers permissions, installation, credential revocation, recovery and migration from version 1. Existing accounts become administrators and retain their original devices.
+
 ## What it does
 
 - **GPU:** usage, VRAM, temperature, power, users and processes; search, idle-only filtering and expandable rows.
@@ -59,7 +67,7 @@ Give your coding agent this instruction, together with your private SSH inventor
 
 > Deploy GPU Observatory using AGENTS.md and docs/DEPLOYMENT_FOR_AGENTS.md. Use one central server and start with one GPU reporter. If I have no domain, use Cloudflare Quick Tunnel and explain how URL changes are handled. Keep secrets outside the repository, use isolated user-space PM2 without sudo, verify authentication and fresh telemetry, then enroll the remaining authorized hosts. Follow cluster policy before adding Slurm.
 
-The [runbook](docs/DEPLOYMENT_FOR_AGENTS.md) includes both tunnel options, exact setup commands, per-host enrollment, PM2 startup/recovery, optional Slurm, verification, upgrades and rollback. It distinguishes Linux boot recovery from macOS login startup and does not assume permission for cluster persistence.
+Once the hub is running, users can enroll devices from **My devices** without SSH access to the hub. The [runbook](docs/DEPLOYMENT_FOR_AGENTS.md) includes both tunnel options, exact setup commands, per-host enrollment, PM2 startup/recovery, optional Slurm, verification, upgrades and rollback. It distinguishes Linux boot recovery from macOS login startup and does not assume permission for cluster persistence.
 
 For an already configured stable HTTPS ingress, the central setup is:
 
@@ -76,6 +84,13 @@ Read the generated login credential file privately. Transfer only that host's en
 **Quick Tunnel restart:** use `manage.mjs set-origin`, restart the hub, redistribute the updated enrollment files and restart reporters. This command preserves credentials but cannot update remote machines automatically. See [the URL-change procedure](docs/DEPLOYMENT_FOR_AGENTS.md#7-when-a-quick-tunnel-url-changes).
 
 ## More views
+
+<details>
+<summary><strong>One-command reporter installation</strong></summary>
+
+![Synthetic example of a short-lived install link](docs/images/device-install.png)
+
+</details>
 
 <details>
 <summary><strong>CPU — per-core heatmap and process owners</strong></summary>
@@ -100,7 +115,7 @@ Read the generated login credential file privately. Transfer only that host's en
 
 ## Scope and limitations
 
-This is a small fleet's current-state dashboard, not a historical metrics database or a multi-tenant monitoring platform. The dashboard has one shared login account. It stores the latest snapshot per source; sessions are invalidated on hub restart. OS permissions can hide process owners or metrics. Unsupported readings stay unknown rather than appearing as zero.
+This is a small fleet's current-state dashboard, not a historical metrics database or an enterprise identity platform. Each user has separate login credentials and can view only their own devices and assigned Slurm sources. Administrators manage accounts; dashboard data remains scoped to its owner. It stores the latest snapshot per source; sessions are invalidated on hub restart. OS permissions can hide process owners or metrics. Unsupported readings stay unknown rather than appearing as zero.
 
 Slurm visibility follows the collector account's permissions. An empty visible queue does not imply an idle cluster. Deploy collectors on managed login nodes only when site policy allows it. No GPU test workload is necessary to install the monitor.
 

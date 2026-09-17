@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 config.json
+accounts.json
 agent-config.json
 *credentials*
 *.pem
