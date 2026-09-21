@@ -42,7 +42,7 @@ try{
     if(existsSync(path)||existsSync(join(dir,'login-credentials.txt')))throw Error('Refusing to replace existing credentials');
     for(const d of [dir,join(dir,'data'),join(dir,'enrollment')]){mkdirSync(d,{recursive:true,mode:0o700});chmodSync(d,0o700);}
     const password=randomBytes(24).toString('base64url'),salt=randomBytes(24).toString('hex');
-    const config={username,passwordSalt:salt,passwordHash:scryptSync(password,salt,64).toString('hex'),publicOrigin,secureCookies:publicOrigin.startsWith('https:'),port,accountsFile:join(dir,'accounts.json'),stateFile:join(dir,'data/snapshots.json'),slurmStateFile:join(dir,'data/slurm-snapshots.json'),hosts:[],slurmSources:[]};
+    const config={username,passwordSalt:salt,passwordHash:scryptSync(password,salt,64).toString('hex'),publicOrigin,secureCookies:publicOrigin.startsWith('https:'),port,accountsFile:join(dir,'accounts.json'),history:{enabled:true,file:join(dir,'data/history.sqlite'),minuteRetentionDays:30,dailyRetentionDays:365},stateFile:join(dir,'data/snapshots.json'),slurmStateFile:join(dir,'data/slurm-snapshots.json'),hosts:[],slurmSources:[]};
     writeFileSync(join(dir,'login-credentials.txt'),`Username: ${username}\nPassword: ${password}\n`,{mode:0o600,flag:'wx'});
     save(path,config);
     console.log('Initialized hub. Read login-credentials.txt privately; values are not printed.');

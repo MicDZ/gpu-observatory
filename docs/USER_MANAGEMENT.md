@@ -1,6 +1,6 @@
 # Users, devices and one-command installation
 
-GPU Observatory 2 adds private user workspaces. Open **My devices** in the dashboard header, or visit `/devices` after login. Each user sees only their own GPU/CPU/RAM data and devices. Administrators manage accounts on the same page; admin status does not automatically expose other users' telemetry. There is no public self-registration.
+GPU Observatory 2 adds private user workspaces. Open **My devices** in the dashboard header, or visit `/devices` after login. Each user sees only their own GPU/CPU/RAM data, devices and historical GPU analytics. Administrators manage accounts on the same page; admin status does not automatically expose other users' telemetry. There is no public self-registration.
 
 Administrators can open **All users’ devices** below the user list to see a read-only inventory with exactly three fields: owner username, device display name and distinct GPU model names. Models come from the last successful GPU report and remain available when a device goes offline or collection fails. Devices without known models show a placeholder. Use **Refresh inventory** to reload this list; it does not poll live telemetry. No utilization, memory, processes, hardware identifiers, report times or credentials are included. Ordinary users cannot access this inventory endpoint.
 
@@ -28,7 +28,7 @@ Each installation has its own directory under `~/.local/share/gpu-agents/<instal
 
 Links are bearer capabilities: anyone holding an unused link can enroll that device. Keep them private. A link expires after 15 minutes, can enroll once, and is bound to the device, owner and hub origin. The hub stores only its hash. Fetching/previewing the script does not consume it. Dependencies are prepared first; the final enrollment POST consumes it and creates a new source-bound reporting credential.
 
-Generating another link invalidates older links for that device but leaves its running reporter active. Redeeming the replacement link rotates the reporting credential. The previous reporter then receives 401; stop any obsolete PM2 process on its original machine yourself. Removing a device immediately revokes its reporting credential and deletes its hub snapshot; it does not execute remote commands or uninstall software.
+Generating another link invalidates older links for that device but leaves its running reporter active. Redeeming the replacement link rotates the reporting credential. The previous reporter then receives 401; stop any obsolete PM2 process on its original machine yourself. Removing a device immediately revokes its reporting credential and deletes its hub snapshot and GPU history; it does not execute remote commands or uninstall software.
 
 If a slow dependency download takes longer than 15 minutes, generate another link and run the new command. Cached dependencies are reused. If enrollment succeeded but PM2 startup failed, the script prints the installation directory: run `GPU_MONITOR_ROOT="/that/directory" python3 /that/directory/setup-agent.py` there to retry without needing the consumed link. Add `--boot` only if desired and permitted. If the enrollment response was lost before a config was saved, generate a new link. Re-running without `--boot` does not remove an existing cron hook.
 

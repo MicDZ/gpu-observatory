@@ -36,7 +36,7 @@ test('service worker caches only public offline assets and never retains private
   assert.deepEqual([...entries.keys()],['/offline.html','/pwa.css','/icons/app-192.png','/i18n.js']);
   const request=(path,method='GET',mode='cors')=>({url:'https://gpus.example'+path,method,mode});
   const dispatch=req=>{let result;listeners.get('fetch')({request:req,respondWith:p=>result=p});return result;};
-  for(const path of ['/api/snapshot','/api/slurm','/api/login','/api/logout','/api/ingest'])assert.equal(dispatch(request(path,path.includes('login')||path.includes('logout')?'POST':'GET','navigate')),undefined);
+  for(const path of ['/api/history','/api/snapshot','/api/slurm','/api/login','/api/logout','/api/ingest'])assert.equal(dispatch(request(path,path.includes('login')||path.includes('logout')?'POST':'GET','navigate')),undefined);
   assert.equal(fetches,0,'API requests are not intercepted');
   assert.equal(await(await dispatch(request('/','GET','navigate'))).text(),'SECRET-GPU-HOST');
   assert.ok(!entries.has('/'),'authenticated root HTML is never stored');

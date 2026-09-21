@@ -5,10 +5,11 @@ import {scryptSync} from 'node:crypto';
 import {createAccounts,passwordFields} from '../accounts.mjs';
 import {managementRoutes} from '../management.mjs';
 import {snapshot,queue} from './fixtures.mjs';
+import {historyDemo} from './history.mjs';
 const root=new URL('../public/',import.meta.url);
 const types={'.js':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml','.webmanifest':'application/manifest+json','.html':'text/html'};
 const assets=new Map();
-for(const file of ['index.html','devices.html','management.js','management.css','style.css','pwa.css','app.js','system.js','slurm.js','views.js','i18n.js','live-time.js','manifest.webmanifest','manifest.en.webmanifest','icons/icon.svg','icons/app-192.png','icons/app-512.png','icons/app-maskable-512.png','icons/apple-touch-icon.png'])assets.set('/'+file,readFileSync(new URL(file,root)));
+for(const file of ['index.html','history.js','history.css','devices.html','management.js','management.css','style.css','pwa.css','app.js','system.js','slurm.js','views.js','i18n.js','live-time.js','manifest.webmanifest','manifest.en.webmanifest','icons/icon.svg','icons/app-192.png','icons/app-512.png','icons/app-maskable-512.png','icons/apple-touch-icon.png'])assets.set('/'+file,readFileSync(new URL(file,root)));
 const html=assets.get('/index.html').toString().replace('<script src="/pwa.js" defer></script>','<script src="/demo.js" defer></script>').replace('<div class="workspace">','<div class="workspace"><p class="notice" role="status">DEMO · SYNTHETIC DATA / 虚构演示数据 · No live hosts connected</p>');
 const demoScript=`if(!localStorage.getItem('gpu-observatory-language'))localStorage.setItem('gpu-observatory-language','en');document.querySelectorAll('#logout,#sign-out,[data-install-app]').forEach(e=>e.hidden=true);window.I18n?.setLanguage?.(localStorage.getItem('gpu-observatory-language')||'en');`;
 const accounts=createAccounts({username:'demo',passwordSalt:'a'.repeat(48),passwordHash:scryptSync('demo-preview-only','a'.repeat(48),64).toString('hex'),hosts:snapshot().hosts.map(h=>({id:h.id,name:h.name,tokenHash:'0'.repeat(64)})),publicOrigin:'https://demo.invalid'},null);
@@ -25,6 +26,7 @@ const server=http.createServer(async(req,res)=>{
  const path=new URL(req.url,'http://localhost').pathname;
  if(await manage(req,res,path))return;
  if(req.method!=='GET'){res.writeHead(405);return res.end();}
+ if(path==='/api/history'){const result=historyDemo(Object.fromEntries(new URL(req.url,'http://localhost').searchParams));result.hosts=accounts.devices('legacy-admin').map(h=>({id:h.id,name:h.name}));return reply(res,200,result);}
  if(path==='/api/snapshot'||path==='/api/slurm'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify(path==='/api/snapshot'?{...snapshot(),hosts:accounts.devices('legacy-admin').map(d=>samples.get(d.id)||{id:d.id,name:d.name,gpus:[],status:'waiting'})}:queue()));}
  if(path==='/devices'){res.setHeader('Content-Type','text/html; charset=utf-8');return res.end(devicesHTML);}
  if(path==='/'){res.setHeader('Content-Type','text/html; charset=utf-8');return res.end(html);}

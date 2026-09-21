@@ -7,6 +7,7 @@ import { normalizeSlurm } from './slurm/schema.mjs';
 import { normalizeSystem } from './system-schema.mjs';
 import { createAccounts, checkPassword, safeUser } from './accounts.mjs';
 import { managementRoutes, gpuModelNames } from './management.mjs';
+import { HistoryStore } from './history.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 export const digest = value => createHash('sha256').update(value).digest('hex');
@@ -44,13 +45,17 @@ export function createMonitor(config, options = {}) {
       !/^[a-f0-9]{32,}$/.test(config.passwordSalt || '') || !Array.isArray(config.hosts) ||
       config.hosts.some(h => !h.id || !/^[a-f0-9]{64}$/.test(h.tokenHash || ''))) throw new Error('Invalid authentication configuration');
   const now = options.now || Date.now;
+  const history = config.history?.enabled===false ? null : new HistoryStore({file:config.history?.file || (config.stateFile ? join(dirname(config.stateFile),'history.sqlite') : ':memory:'),minuteRetentionDays:config.history?.minuteRetentionDays??30,dailyRetentionDays:config.history?.dailyRetentionDays??365,now});
+  let historyErrorLoggedAt=-Infinity;
+  function historyFailure(){if(history)history.lastError=true;if(now()-historyErrorLoggedAt>60000){console.error(JSON.stringify({event:'history_storage_error',message:'History unavailable; check private storage'}));historyErrorLoggedAt=now();}}
   const secure = config.secureCookies !== false;
   const cookieName = secure ? '__Host-gpu_session' : 'gpu_session';
   const sessions = new Map(), loginLimits = new Map(), ingestLimits = new Map();
   const accounts = createAccounts(config, config.accountsFile || (config.stateFile ? join(dirname(config.stateFile), 'accounts.json') : null), now);
+  history?.reconcile(accounts.allDevices().map(h=>h.id));
   const hosts = { get:id => accounts.device(id), has:id => !!accounts.device(id), values:() => accounts.allDevices() };
   const actor = req => { const key=session(req); return key ? accounts.user(sessions.get(key).userId) : null; };
-  const invalidate = uid => { for(const [key,s] of sessions) if(s.userId===uid) sessions.delete(key); };
+  const invalidate = uid => { history?.forgetBaseline(uid); for(const [key,s] of sessions) if(s.userId===uid) sessions.delete(key); };
   const installer = readFileSync(join(root,'deploy/install-agent.py'),'utf8');
   const agentPackage = Object.fromEntries(['agent.py','system_sampler.py','requirements.txt','deploy/setup-agent.py','deploy/setup-node.py'].map(name=>{
     const content=readFileSync(join(root,name),'utf8');return [name.split('/').pop(),{content,sha256:digest(content)}];
@@ -63,7 +68,7 @@ export function createMonitor(config, options = {}) {
   const snapshots = new Map(), recentReports = new Map();
   const stateFile = config.stateFile;
   const assets = new Map(['/app.js', '/style.css', '/slurm.js', '/views.js', '/system.js', '/live-time.js',
-    '/management.js', '/management.css', '/pwa.js', '/pwa.css', '/i18n.js', '/sw.js', '/offline.html', '/manifest.webmanifest', '/manifest.en.webmanifest',
+    '/history.js', '/history.css', '/management.js', '/management.css', '/pwa.js', '/pwa.css', '/i18n.js', '/sw.js', '/offline.html', '/manifest.webmanifest', '/manifest.en.webmanifest',
     '/icons/icon.svg', '/icons/app-192.png', '/icons/app-512.png', '/icons/app-maskable-512.png', '/icons/apple-touch-icon.png'
   ].map(path => [path, readFileSync(join(root, 'public', path))]));
   if (stateFile && existsSync(stateFile)) {
@@ -95,6 +100,7 @@ export function createMonitor(config, options = {}) {
   const cleanup = setInterval(() => {
     for (const [key, value] of sessions) if (value.expires <= now()) sessions.delete(key);
     for (const map of [loginLimits, ingestLimits]) for (const [key, value] of map) if (value.until <= now()) map.delete(key);
+    try{history?.prune(now());}catch{historyFailure();}
   }, 60000).unref();
   function session(req) {
     const match = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith(cookieName + '='));
@@ -116,7 +122,7 @@ export function createMonitor(config, options = {}) {
   }
   function originOK(req) { return req.headers.origin === config.publicOrigin; }
   const manage = managementRoutes({accounts, actor, json, reply, originOK, invalidate, snapshots, now, origin:config.publicOrigin,
-    removeSnapshot:id=>{snapshots.delete(id);recentReports.delete(id);persist();}});
+    removeSnapshot:id=>{history?.removeHost(id);snapshots.delete(id);recentReports.delete(id);persist();}});
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -135,6 +141,16 @@ export function createMonitor(config, options = {}) {
       if (/^\/api\/(me|devices|users)(\/|$)/.test(path) && req.method!=='GET') {
         const user=actor(req);
         if(user && !rate(loginLimits,'manage:'+user.id,30,60000)) return reply(res,429,{error:'操作过于频繁，请稍后重试'});
+      }
+      if(path==='/api/history'&&req.method==='GET'){
+        const user=actor(req);if(!user)return reply(res,401,{error:'Unauthorized'});
+        if(!rate(loginLimits,'history:'+user.id,30,60000))return reply(res,429,{error:'操作过于频繁，请稍后重试'});
+        if(!history)return reply(res,200,{enabled:false});
+        const query=new URL(req.url,'http://localhost').searchParams,hostId=query.get('hostId')||'';
+        if(hostId&&!accounts.devices(user.id).some(h=>h.id===hostId))return reply(res,404,{error:'设备不存在'});
+        const options={hostId};for(const key of ['days','from','to'])if(query.has(key))options[key]=query.get(key);
+        try{const result=history.query(user.id,options,now());result.hosts=accounts.devices(user.id).map(h=>({id:h.id,name:h.name}));const names=new Map(result.hosts.map(h=>[h.id,h.name]));for(const row of result.devices)row.hostName=names.get(row.hostId)||row.hostName;return reply(res,200,result);}
+        catch(error){if(error.status)throw error;historyFailure();return reply(res,503,{error:'历史数据库暂时不可用'});}
       }
       if (await manage(req,res,path)) return;
       if (path === '/api/agent-package' && req.method === 'GET') return reply(res,200,{files:agentPackage});
@@ -197,6 +213,9 @@ export function createMonitor(config, options = {}) {
         let recent = recentReports.get(host.id);
         if (!recent) { recent = new Set([snapshots.get(host.id)?.reportId].filter(Boolean)); recentReports.set(host.id, recent); }
         if (recent.has(snapshot.reportId)) return reply(res, 409, { error: 'Duplicate snapshot' });
+        try{
+          if(history && !history.record(host,snapshot,now()))return reply(res,409,{error:'Duplicate snapshot'});
+        }catch{history?.pending.delete(host.id);historyFailure();}
         recent.add(snapshot.reportId);
         if (recent.size > 128) recent.delete(recent.values().next().value);
         // Host clocks may drift; freshness is measured only by the hub's receipt time.
@@ -253,7 +272,7 @@ export function createMonitor(config, options = {}) {
   server.requestTimeout = 10000;
   server.headersTimeout = 10000;
   server.keepAliveTimeout = 5000;
-  server.on('close', () => clearInterval(cleanup));
+  server.on('close', () => {clearInterval(cleanup);history?.close();});
   return server;
 }
 
@@ -261,6 +280,7 @@ if (process.env.GPU_MONITOR_CONFIG || process.argv[1] === fileURLToPath(import.m
   const configPath=process.env.GPU_MONITOR_CONFIG || join(root, 'config.json');
   const config = JSON.parse(readFileSync(configPath, 'utf8'));
   config.accountsFile ||= join(config.stateFile ? dirname(config.stateFile) : dirname(configPath), 'accounts.json');
+  config.history={...config.history,file:config.history?.file || join(config.stateFile ? dirname(config.stateFile) : dirname(configPath),'history.sqlite')};
   const server = createMonitor(config);
   server.listen(config.port || 8787, '127.0.0.1', () => console.log(`GPU dashboard listening on 127.0.0.1:${config.port || 8787}`));
   const stop = () => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 5000).unref(); };

@@ -43,7 +43,7 @@ test('all marked static copy and explicit dynamic translation calls have English
       assert.ok(Object.hasOwn(api.messages,key),`${name}: ${key}`);
     }
   }
-  for(const name of ['app.js','system.js','slurm.js','pwa.js','live-time.js','management.js']){
+  for(const name of ['app.js','system.js','slurm.js','pwa.js','live-time.js','management.js','history.js']){
     const js=readFileSync(new URL('../public/'+name,import.meta.url),'utf8');
     for(const m of js.matchAll(/\bT\((['"])(.*?)\1/g))if(/[\u4e00-\u9fff]/.test(m[2]))assert.ok(Object.hasOwn(api.messages,m[2]),`${name}: ${m[2]}`);
   }

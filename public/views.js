@@ -1,6 +1,6 @@
 (() => {
   if(document.body.dataset.page!=='dashboard')return;
-  const names=['gpu','cpu','memory','slurm'];
+  const names=['gpu','cpu','memory','slurm','history'];
   let selected='gpu';
   try{const saved=sessionStorage.getItem('monitor-view');if(names.includes(saved))selected=saved;}catch{}
   function select(view){

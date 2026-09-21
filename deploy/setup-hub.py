@@ -22,7 +22,9 @@ config_path = root / 'config.json'
 config = json.loads(config_path.read_text())
 node, npm = shutil.which('node'), shutil.which('npm')
 if not node or not npm:
-    raise SystemExit('Node.js 20+ and npm must be on PATH')
+    raise SystemExit('Node.js 22.16+ and npm must be on PATH')
+if subprocess.run([node, '-e', "const s=require('node:sqlite');if(typeof s.DatabaseSync!=='function'||typeof s.backup!=='function')process.exit(1)"], capture_output=True).returncode:
+    raise SystemExit('This hub needs Node.js 22.16+ with built-in SQLite. Upgrade the user runtime first.')
 cloudflared = shutil.which('cloudflared') if args.quick_tunnel or args.tunnel_config else None
 if (args.quick_tunnel or args.tunnel_config) and not cloudflared:
     raise SystemExit('Install cloudflared on the user PATH first')

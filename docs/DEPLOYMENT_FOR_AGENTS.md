@@ -10,7 +10,7 @@ Collect the hub's SSH destination, its OS, an installation directory, and the mo
 
 Prerequisites:
 
-- Hub: Node.js 20+ and npm; Python 3.10+ for the PM2 helper; `cloudflared` on PATH if using Cloudflare. The Node hub itself has no npm dependencies.
+- Hub: Node.js 22.16+ and npm; Python 3.10+ for the PM2 helper; `cloudflared` on PATH if using Cloudflare. The Node hub itself has no npm dependencies.
 - GPU hosts: Linux, Python 3.10+ with pip/venv support, a working NVIDIA driver/NVML (`nvidia-smi`), outbound HTTPS, Node/npm for PM2. Read-only CPU and RAM sampling uses psutil. GPU monitoring supports NVIDIA; AMD/Apple GPUs are not currently supported.
 - Optional Slurm source: Python 3.10+, working `squeue`/`sinfo`, a user-space Node runtime for PM2, and permission to run a persistent collector at the chosen cadence. Do not assume login-node daemons or boot hooks are allowed.
 
@@ -183,6 +183,9 @@ Test recovery only for this project's isolated PM2 namespace, and only when a br
 Handoff: provide the public URL, private credential-file path, enrolled IDs, process helper paths, restart commands, any persistence limitations, and the Quick Tunnel URL-change procedure. Never include credential values or unredacted screenshots in a public handoff.
 
 ## 9. Updates and rollback
+
+History-enabled versions require Node.js 22.16+ on the hub. Check this before replacing source files. Existing reporters do not need a Node upgrade or redeployment. History starts with new reports; old snapshots cannot be backfilled. The private SQLite database defaults beside `stateFile`. Read [storage, retention and consistent backup](HISTORY.md); do not copy an open SQLite database without its WAL or the provided backup utility.
+
 
 Keep a copy of the previous source revision and back up private state outside Git before updating. Run tests, deploy the new source to the same path, restart the hub, and update/restart agents only when their code or dependencies changed. Re-running `init` or enrolling an existing ID intentionally fails instead of silently rotating secrets. For rollback, restore the previous source and only restore private state if schema compatibility requires it; restarting sessions is expected.
 

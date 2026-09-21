@@ -128,3 +128,20 @@ test('admin inventory exposes only owner, device name and GPU models; preserves 
  assert.equal((await request('/api/devices/'+d.id,'DELETE',null,a2)).status,200);
  assert.ok(!(await(await request('/api/users/devices','GET',null,admin2)).json()).devices.some(row=>row.name==='Renamed workstation'));
 });
+
+test('history is session-only and owner-scoped; source tokens and admin inventory grant no broader analytics access',async t=>{
+ const f=await fixture(t),{request,admin}=f;await f.addUser('alice');const a=await f.login('alice','safe-password-alice');
+ const d=(await(await request('/api/devices','POST',{name:'Alice history GPU'},a)).json()).device;
+ const ticket=await(await request('/api/devices/'+d.id+'/install','POST',{},a)).json();
+ const enrollment=await(await request('/api/enroll','POST',{token:installToken(ticket)})).json();
+ const auth={Authorization:'Bearer '+enrollment.token,'X-Host-Id':d.id};
+ const gpu={uuid:'GPU-alice-history',index:0,name:'Test GPU',utilization:70,memoryUsed:1024,memoryTotal:8192,processesAvailable:true,processes:[{pid:100,username:'sample-user',gpuMemory:1024}]};
+ await request('/api/ingest','POST',{...packet(d.id),gpus:[gpu]},null,auth);f.advance(5000);await request('/api/ingest','POST',{...packet(d.id),gpus:[gpu]},null,auth);
+ assert.equal((await request('/api/history')).status,401);assert.equal((await request('/api/history','GET',null,null,auth)).status,401);
+ let r=await(await request('/api/history?days=7&ownerId=legacy-admin','GET',null,a)).json();assert.equal(r.devices[0].hostId,d.id);assert.equal(r.users[0].username,'sample-user');assert.equal(r.summary.avgUtilization,70);
+ assert.equal((await(await request('/api/history','GET',null,admin)).json()).devices.length,0);
+ assert.equal((await request('/api/history?hostId='+d.id,'GET',null,admin)).status,404);
+ assert.equal((await request('/api/history?days=9999','GET',null,a)).status,400);
+ await request('/api/devices/'+d.id,'DELETE',null,a);
+ r=await(await request('/api/history','GET',null,a)).json();assert.equal(r.devices.length,0);assert.equal(r.users.length,0);
+});

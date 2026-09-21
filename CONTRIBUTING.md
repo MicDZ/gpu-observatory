@@ -1,6 +1,6 @@
 # Contributing
 
-Use Node.js 20+ and Python 3.10+. The hub and frontend have no npm runtime dependencies. Install Python dependencies in a virtual environment, then run:
+Use Node.js 22.16+ and Python 3.10+. The hub and frontend have no npm runtime dependencies. Install Python dependencies in a virtual environment, then run:
 
 ```sh
 npm test

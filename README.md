@@ -22,6 +22,7 @@ Administrators create user accounts and can view a limited device inventory (own
 
 ## What it does
 
+- **History & rankings:** private SQLite storage, daily utilization/VRAM trends, date/device filters, GPU usage and process-user occupancy rankings. [Storage and methodology](docs/HISTORY.md).
 - **GPU:** usage, VRAM, temperature, power, users and processes; search, idle-only filtering and expandable rows.
 - **CPU:** total/per-core usage, load averages and top readable processes by user and PID.
 - **Memory:** RAM, available memory, cache, swap and top readable processes with usernames and RSS. RSS includes shared pages, so process totals are not a precise per-user share of host memory.
@@ -32,7 +33,7 @@ Administrators create user accounts and can view a limited device inventory (own
 
 ## You need a central server
 
-A small VPS, home server, Mac or always-on workstation can serve as the hub; **it does not need a GPU**. It must stay online and be reachable over HTTPS by every reporter. Install Node.js 20+ on the hub. Reporters currently target Linux NVIDIA machines with Python 3.10+, NVML and user-space Node/PM2.
+A small VPS, home server, Mac or always-on workstation can serve as the hub; **it does not need a GPU**. It must stay online and be reachable over HTTPS by every reporter. Install Node.js 22.16+ on the hub. Reporters currently target Linux NVIDIA machines with Python 3.10+, NVML and user-space Node/PM2.
 
 ```mermaid
 flowchart LR
@@ -88,6 +89,13 @@ Read the generated login credential file privately. Transfer only that host's en
 ## More views
 
 <details>
+<summary><strong>History — daily GPU trends and usage rankings</strong></summary>
+
+![Synthetic GPU usage history and rankings](docs/images/history.png)
+
+</details>
+
+<details>
 <summary><strong>One-command reporter installation</strong></summary>
 
 ![Synthetic example of a short-lived install link](docs/images/device-install.png)
@@ -117,7 +125,7 @@ Read the generated login credential file privately. Transfer only that host's en
 
 ## Scope and limitations
 
-This is a small fleet's current-state dashboard, not a historical metrics database or an enterprise identity platform. Each user has separate login credentials and can view only their own devices and assigned Slurm sources. Administrators manage accounts; dashboard data remains scoped to its owner. It stores the latest snapshot per source; sessions are invalidated on hub restart. OS permissions can hide process owners or metrics. Unsupported readings stay unknown rather than appearing as zero.
+This dashboard targets small GPU fleets and includes a local SQLite history database. It is not an enterprise identity platform or a distributed metrics service. Each user has separate login credentials and can view only their own devices and assigned Slurm sources. Administrators manage accounts; dashboard data remains scoped to its owner. Live snapshots remain separate from private minute/day history aggregates; sessions are invalidated on hub restart. OS permissions can hide process owners or metrics. Unsupported readings stay unknown rather than appearing as zero.
 
 Slurm visibility follows the collector account's permissions. An empty visible queue does not imply an idle cluster. Deploy collectors on managed login nodes only when site policy allows it. No GPU test workload is necessary to install the monitor.
 

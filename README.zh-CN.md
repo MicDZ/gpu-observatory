@@ -22,6 +22,7 @@
 
 ## 功能
 
+- 历史分析：SQLite 保存历史汇总，查看每日利用率、显存趋势、GPU 用量与进程用户占卡排行；支持日期和设备筛选。[存储与统计口径](docs/HISTORY.md)
 - GPU 利用率、显存、温度、功耗；展开查看用户名、PID、进程名与占用显存。
 - CPU 独立标签页：总利用率、各核心热力图、负载、进程占用和用户。
 - 内存独立标签页：RAM、可用内存、缓存、Swap、带用户名的进程 RSS 排名。RSS 包含共享页，不能直接相加作为用户独占内存。
@@ -32,7 +33,7 @@
 
 ## 必须有一台中心服务器
 
-可以是 VPS、家用服务器、Mac 或长期在线的工作站，**不需要 GPU**。它负责运行网站并接收所有主机的 HTTPS 上报，因此需要持续开机联网。中心运行 Node.js 20+；GPU 上报端目前支持 Linux NVIDIA 主机，需要 Python 3.10+、可用驱动/NVML，以及管理进程的 Node/PM2。
+可以是 VPS、家用服务器、Mac 或长期在线的工作站，**不需要 GPU**。它负责运行网站并接收所有主机的 HTTPS 上报，因此需要持续开机联网。中心运行 Node.js 22.16+；GPU 上报端目前支持 Linux NVIDIA 主机，需要 Python 3.10+、可用驱动/NVML，以及管理进程的 Node/PM2。
 
 **没有域名：使用 Cloudflare Quick Tunnel 起步。** 无需注册 Cloudflare 账号或购买域名，会获得随机的 `*.trycloudflare.com` HTTPS 地址。但隧道每次重启后地址都会变化，需要更新中心配置及所有上报端地址。它面向开发测试，没有可用性保证，有 200 并发请求限制，不支持 SSE；本项目使用轮询。[官方说明](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
 
@@ -61,6 +62,13 @@ npm run demo
 Quick Tunnel 换址后，`manage.mjs set-origin` 会保留凭据并更新中心配置和本地注册文件；还需要将各自的配置安全分发至对应上报端并重启。它不会自动修改远端主机。[换址步骤](docs/DEPLOYMENT_FOR_AGENTS.md#7-when-a-quick-tunnel-url-changes)
 
 ## 更多效果图
+
+<details>
+<summary><strong>历史趋势与 GPU 用量排行</strong></summary>
+
+![虚构历史数据与排行榜](docs/images/history.png)
+
+</details>
 
 <details>
 <summary><strong>一键安装上报端</strong></summary>
@@ -92,7 +100,7 @@ Quick Tunnel 换址后，`manage.mjs set-origin` 会保留凭据并更新中心�
 
 ## 使用边界
 
-本项目面向小型主机集群的当前状态，保存各来源最近一次快照，不提供历史时序数据库或企业级身份平台。不同用户分别登录，只能查看自己的设备及分配给自己的 Slurm 来源；管理员负责管理账号，中心重启后需要重新登录。进程可见性取决于操作系统权限；未知数据不会伪装成零。
+本项目面向小型主机集群，保存实时快照及 SQLite 历史汇总，默认保留 30 天分钟汇总和 365 天每日汇总。它不是分布式监控或企业级身份平台。不同用户分别登录，只能查看自己的设备及分配给自己的 Slurm 来源；管理员负责管理账号，中心重启后需要重新登录。进程可见性取决于操作系统权限；未知数据不会伪装成零。
 
 Slurm 只显示采集账号被允许查看的任务，空队列不代表集群空闲。部署时无需提交 GPU 测试任务。PWA 安装取决于浏览器、操作系统和 HTTPS 条件；离线时只展示占位页，不缓存私有指标。
 

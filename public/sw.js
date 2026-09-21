@@ -1,5 +1,5 @@
 'use strict';
-const CACHE = 'gpu-observatory-public-v8';
+const CACHE = 'gpu-observatory-public-v9';
 // An explicit public-only allowlist: never cache dashboard HTML, sessions or APIs.
 const PUBLIC = ['/offline.html', '/pwa.css', '/icons/app-192.png', '/i18n.js'];
 self.addEventListener('install', event => {
