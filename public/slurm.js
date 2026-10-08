@@ -8,7 +8,8 @@
   let data = null, inFlight = false, selected = window.monitorActiveView || 'gpu', shownStatuses = '';
   const sourceStatus = source => Time.sourceStatus(source,Time.now(),Math.max(180,(source.intervalSeconds||60)*3));
   const statusKey = () => data?.sources.map(sourceStatus).join('|') || '';
-  const opened = new Set(), pages = new Map(), partitionOpen = new Set();
+  const opened = new Set(), pages = new Map(), partitionOpen = new Set(), usersOpen = new Set();
+  const fmt = (n, d = 2) => Number.isFinite(n) ? n.toLocaleString('en-US', { maximumFractionDigits: d }) : '—';
   function partitions(source) {
     const details = make('details', 'partition-details'); details.open = partitionOpen.has(source.id);
     const total = (source.partitions || []).reduce((n,p) => n + p.nodes, 0);
@@ -27,12 +28,84 @@
     details.append(grid, make('p','queue-note',T("节点条目按分区统计；同一节点若属于多个分区可能重复。mix 表示部分资源已用，idle 为空闲；保留 Slurm 原始状态及后缀。")));
     return details;
   }
+
+  const userSort = new Map();
+  const USER_COLUMNS = [
+    {key:'username', label:'用户', type:'text', dir:'asc'},
+    {key:'account', label:'账户', type:'text', dir:'asc'},
+    {key:'fairshare', label:'FairShare 因子', type:'number', dir:'desc'},
+    {key:'normShares', label:'标准化份额', type:'number', dir:'desc'},
+    {key:'rawUsage', label:'已用权重', type:'number', dir:'desc'},
+    {key:'effectvUsage', label:'有效用量', type:'number', dir:'desc'},
+    {key:'levelFs', label:'LevelFS', type:'number', dir:'desc'},
+    {key:'runGpuHours', label:'运行 GPU·小时', type:'number', dir:'desc'},
+    {key:'runCpuHours', label:'运行 CPU·小时', type:'number', dir:'desc'}
+  ];
+  const userMetric = (u, key) => key === 'runGpuHours' ? (Number.isFinite(u.runGpuMinutes) ? u.runGpuMinutes/60 : null)
+    : key === 'runCpuHours' ? (Number.isFinite(u.runCpuMinutes) ? u.runCpuMinutes/60 : null) : (u[key] ?? null);
+  function sortUsers(rows, sort) {
+    const col = USER_COLUMNS.find(c => c.key === sort.key) || USER_COLUMNS[0], sign = sort.dir === 'asc' ? 1 : -1;
+    const missing = v => v === null || v === undefined || v === '';
+    return [...rows].sort((a, b) => {
+      const av = userMetric(a, col.key), bv = userMetric(b, col.key), am = missing(av), bm = missing(bv);
+      if (am || bm) return am && bm ? a.username.localeCompare(b.username) : (am ? 1 : -1);
+      const cmp = col.type === 'number' ? Number(av) - Number(bv) : String(av).localeCompare(String(bv));
+      return cmp !== 0 ? cmp * sign : a.username.localeCompare(b.username);
+    });
+  }
+  function usersSection(source, search) {
+    const users = source.users || [];
+    if (!users.length && !source.usersWarning) return null;
+    const matched = users.filter(u => !search || `${u.username} ${u.account || ''}`.toLowerCase().includes(search));
+    const details = make('details', 'user-details'); details.open = usersOpen.has(source.id);
+    details.addEventListener('toggle', () => { details.open ? usersOpen.add(source.id) : usersOpen.delete(source.id); });
+    details.append(make('summary', '', T('用户参数 · {count} 个用户（FairShare · 当前运行用量）', {count: matched.length})));
+    if (source.usersWarning) details.append(make('p','notice', source.usersWarning));
+    if (!matched.length) details.append(make('p','empty user-empty', T('没有符合筛选条件的用户')));
+    else {
+      const sort = userSort.get(source.id) || {key:'rawUsage', dir:'desc'};
+      const rows = sortUsers(matched, sort);
+      const wrap = make('div','queue-table-wrap'), table = make('table','queue-table user-table'), head = make('thead'), tr = make('tr');
+      for (const col of USER_COLUMNS) {
+        const active = sort.key === col.key, th = make('th','sortable-cell');
+        th.setAttribute('aria-sort', active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none');
+        const button = make('button','sort-button','');
+        button.type = 'button';
+        button.id = 'slurm-sort-' + encodeURIComponent(source.id + '/' + col.key);
+        button.setAttribute('aria-label', T('按 {column} 排序', {column: T(col.label)}));
+        button.append(make('span','sort-label',T(col.label)),
+          make('span','sort-arrow' + (active ? '' : ' idle'), active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'));
+        button.addEventListener('click', () => {
+          const current = userSort.get(source.id) || {key:'rawUsage', dir:'desc'};
+          userSort.set(source.id, {key: col.key, dir: current.key === col.key ? (current.dir === 'asc' ? 'desc' : 'asc') : col.dir});
+          render();
+        });
+        th.append(button); tr.append(th);
+      }
+      head.append(tr); table.append(head); const tbody = make('tbody');
+      for (const u of rows) {
+        const row = make('tr','');
+        const gpuHours = Number.isFinite(u.runGpuMinutes) ? u.runGpuMinutes/60 : NaN;
+        const cpuHours = Number.isFinite(u.runCpuMinutes) ? u.runCpuMinutes/60 : NaN;
+        row.append(make('td','user-cell',u.username), make('td','',u.account||'—'),
+          make('td','number-cell',fmt(u.fairshare,4)), make('td','number-cell',fmt(u.normShares,3)),
+          make('td','number-cell',fmt(u.rawUsage,0)), make('td','number-cell',fmt(u.effectvUsage,3)),
+          make('td','number-cell',fmt(u.levelFs,2)),
+          make('td','number-cell',fmt(gpuHours,1)), make('td','number-cell',fmt(cpuHours,1)));
+        tbody.append(row);
+      }
+      table.append(tbody); wrap.append(table); details.append(wrap);
+      details.append(make('p','queue-note', T('点击表头可按该列排序，再次点击切换升序 / 降序。FairShare 因子越高，同等条件下越优先。已用权重（带时间衰减，跨 CPU/内存/GPU 等 TRES 加权）、有效用量与运行 GPU·小时 / CPU·小时均来自 Slurm 关联数据，为全集群口径；运行小时是当前运行作业累计的 TRES 分钟数换算而来，不是历史窗口统计。')));
+    }
+    return details;
+  }
   function render() {
     if (!data) return;
     const focus = document.activeElement?.id;
     const root = document.createDocumentFragment(), search = $('slurm-search').value.trim().toLowerCase(), state = $('slurm-state').value;
     let visible = 0, healthy = data.sources.length > 0;
     shownStatuses=statusKey();
+    if (data.sources.length > 1) root.append(make('p','queue-note slurm-source-summary',T('共 {count} 个 Slurm 节点',{count:data.sources.length})));
     for (const original of data.sources) {
       const source={...original,status:sourceStatus(original)};
       const total = source.counts?.visible;
@@ -52,6 +125,7 @@
       if (source.status !== 'online' && source.status !== 'waiting') card.append(make('p','notice', source.error || T("上报已超时，下方是历史快照，不代表当前队列。")));
       if (source.warning) card.append(make('p','notice',source.warning));
       if (source.partitions?.length) card.append(partitions(source));
+      const userBlock = usersSection(source, search); if (userBlock) card.append(userBlock);
       const jobs = (source.jobs || []).filter(j => (!search || `${j.jobId} ${j.username} ${j.partition} ${j.reason}`.toLowerCase().includes(search)) &&
         (state === 'all' || (state === 'other' ? !['PENDING','RUNNING'].includes(j.state) : j.state === state)));
       jobs.sort((a,b) => Number(b.state==='PENDING')-Number(a.state==='PENDING') || (b.priority||0)-(a.priority||0) || a.jobId.localeCompare(b.jobId,undefined,{numeric:true}));
@@ -87,7 +161,7 @@
     $('slurm-sources').replaceChildren(root);
     $('slurm-tab-count').textContent=!data.sources.length?'—':healthy?visible:'!';
     $('slurm-tab-count').title=!data.sources.length?T('尚未配置 Slurm 数据源'):healthy?T('可见作业总数（含排队、运行及其他状态）'):T("队列源尚未就绪或上报已中断");
-    if(focus?.startsWith('slurm-job-'))$(focus)?.focus({preventScroll:true});
+    if(focus?.startsWith('slurm-job-')||focus?.startsWith('slurm-sort-'))$(focus)?.focus({preventScroll:true});
   }
   async function refresh() {
     if(inFlight)return;inFlight=true;

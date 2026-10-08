@@ -1,14 +1,29 @@
 const shellQuote=value=>"'"+value.replaceAll("'","'\\''")+"'";
+import { createHash } from 'node:crypto';
 import { passwordFields, checkPassword, safeUser, fail } from './accounts.mjs';
+
+// Mirrors deploy/install-agent.py: web-enrolled reporters live under a per-device directory.
+const installDir=id=>createHash('sha256').update((id||'').toString()).digest('hex').slice(0,16);
+// A user-runnable, sudo-free recovery snippet. It prefers the hub-specific install directory,
+// falls back to any gpu-agents install, then to the manual gpu-monitor layout.
+export function recoveryCommand(origin,hostId){
+  const dir=installDir(origin+'/'+hostId);
+  return 'R="$HOME/.local/share/gpu-agents/'+dir+'"; [ -d "$R" ] || R=$(ls -d "$HOME"/.local/share/gpu-agents/*/ 2>/dev/null | head -n1); [ -n "$R" ] || R="$HOME/.local/share/gpu-monitor"; sh "$R/pm2.sh" startOrRestart "$R/ecosystem.json" && sh "$R/pm2.sh" save';
+}
 
 export function gpuModelNames(sample) {
   const names=sample?.gpuModels ?? sample?.gpus?.map(g=>g.name) ?? [];
   return [...new Set(names.filter(name=>typeof name==='string' && name.trim()).map(name=>name.trim()))].sort();
 }
 
-export function managementRoutes({accounts, actor, json, reply, originOK, invalidate, snapshots, removeSnapshot, now, origin}) {
+export function slurmRecoveryCommand(origin, sourceId) {
+  const dir = installDir(origin + '/' + sourceId);
+  return 'R="$HOME/.local/share/slurm-agents/' + dir + '"; [ -d "$R" ] || R="$HOME/.local/share/slurm-monitor"; sh "$R/pm2.sh" startOrRestart "$R/ecosystem.json" && sh "$R/pm2.sh" save';
+}
+
+export function managementRoutes({accounts, actor, json, reply, originOK, invalidate, snapshots, removeSnapshot, slurmSnapshots, removeSlurmSnapshot, now, origin}) {
   return async function route(req,res,path) {
-    if (!/^\/api\/(me|devices|users)(\/|$)/.test(path)) return false;
+    if (!/^\/api\/(me|devices|users|slurm-sources)(\/|$)/.test(path)) return false;
     const u=actor(req);if(!u){reply(res,401,{error:'Unauthorized'});return true;}
     if(req.method!=='GET'&&!originOK(req))throw fail(403,'Invalid origin');
     const uid=u.id;
@@ -24,9 +39,36 @@ export function managementRoutes({accounts, actor, json, reply, originOK, invali
     }
     if(path==='/api/devices'&&req.method==='GET')return send(200,{serverTime:now(),devices:accounts.devices(uid).map(d=>{
       const sample=snapshots.get(d.id);
+      const status=!sample?'waiting':now()-sample.receivedAt>30000?'offline':sample.error?'error':'online';
       return {id:d.id,name:d.name,createdAt:d.createdAt,enrolled:!!d.tokenHash,receivedAt:sample?.receivedAt||null,
-        status:!sample?'waiting':now()-sample.receivedAt>30000?'offline':sample.error?'error':'online',gpuCount:sample?.gpus?.length||0};
+        status,gpuCount:sample?.gpus?.length||0,
+        recovery:(status==='offline'||status==='error')?recoveryCommand(origin,d.id):null};
     })});
+    if(path==='/api/slurm-sources'&&req.method==='GET')return send(200,{serverTime:now(),sources:accounts.slurmSources(uid).map(s=>{
+      const sample=slurmSnapshots?.get(s.id), interval=s.intervalSeconds||60;
+      const status=!sample?'waiting':now()-sample.receivedAt>Math.max(180000,interval*3000)?'offline':sample.error?'error':'online';
+      return {id:s.id,name:s.name,collectorUser:s.collectorUser,scope:s.scope,visibility:s.visibility,intervalSeconds:interval,
+        createdAt:s.createdAt??null,enrolled:!!s.tokenHash,receivedAt:sample?.receivedAt??null,status,
+        counts:sample?.counts??null,hostname:sample?.hostname??null,
+        recovery:(status==='offline'||status==='error')?slurmRecoveryCommand(origin,s.id):null};
+    })});
+    if(path==='/api/slurm-sources'&&req.method==='POST'){
+      const body=await read();
+      const s=accounts.addSlurm(uid,body.name,{collectorUser:body.collectorUser,scope:body.scope,visibility:body.visibility,intervalSeconds:body.intervalSeconds});
+      return send(201,{source:{id:s.id,name:s.name,collectorUser:s.collectorUser,scope:s.scope,visibility:s.visibility,intervalSeconds:s.intervalSeconds}});
+    }
+    const slurmMatch=/^\/api\/slurm-sources\/([a-zA-Z0-9._-]+)(\/install)?$/.exec(path);
+    if(slurmMatch){
+      const sourceId=slurmMatch[1];
+      if(slurmMatch[2]&&req.method==='POST'){
+        await read();
+        const ticket=accounts.issueSlurmTicket(uid,sourceId,false);
+        const url=origin+'/install-slurm/'+ticket.token+'.py';
+        return send(201,{url,expiresAt:ticket.expiresAt,command:'bash -o pipefail -c '+shellQuote('curl --proto =https --tlsv1.2 -fsS "$1" | python3 -')+' -- '+shellQuote(url)});
+      }
+      if(!slurmMatch[2]&&req.method==='PATCH'){const body=await read();accounts.renameSlurm(uid,sourceId,body.name);return send(200,{ok:true});}
+      if(!slurmMatch[2]&&req.method==='DELETE'){accounts.deleteSlurm(uid,sourceId);removeSlurmSnapshot?.(sourceId);return send(200,{ok:true});}
+    }
     if(path==='/api/devices'&&req.method==='POST'){
       const body=await read(),d=accounts.addDevice(uid,body.name);
       return send(201,{device:{id:d.id,name:d.name}});

@@ -61,7 +61,7 @@ try{
       if(!['mine','visible'].includes(scope)||!['account-visible','private-jobs'].includes(visibility))throw Error('Invalid scope or visibility');
       if(!Number.isInteger(intervalSeconds)||intervalSeconds<60)throw Error('Slurm interval must be at least 60 seconds');
       config.slurmSources??=[];config.slurmSources.push({...entry,collectorUser:o.user,scope,visibility,intervalSeconds});
-      enrollment={sourceId:id,url:config.publicOrigin+'/api/slurm/ingest',token,scope,visibility,intervalSeconds,squeuePath:'/usr/bin/squeue',sinfoPath:'/usr/bin/sinfo'};
+      enrollment={sourceId:id,url:config.publicOrigin+'/api/slurm/ingest',token,scope,visibility,intervalSeconds,squeuePath:'/usr/bin/squeue',sinfoPath:'/usr/bin/sinfo',ssharePath:'/usr/bin/sshare'};
     }
     writeFileSync(file,JSON.stringify(enrollment,null,2)+'\n',{mode:0o600,flag:'wx'});save(path,config);
     console.log(`Enrolled ${id}. Transfer only enrollment/${id}.json to that reporter; restart the hub.`);

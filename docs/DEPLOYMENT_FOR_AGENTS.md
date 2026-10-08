@@ -140,7 +140,7 @@ node scripts/manage.mjs add-slurm cluster-01 --user alice --scope mine --state "
 
 Replace `alice` with the actual collector OS username. Default `mine` requests only that user's jobs. Use `--scope visible` only when the intended account-visible collection is permitted. Set `--visibility private-jobs` if the cluster uses `PrivateData=jobs`; this adds an explicit UI warning that an empty account-visible queue does not mean the cluster is idle. The default interval is 60 seconds; `--interval` may increase it, never reduce it below 60.
 
-On the permitted collector node, create `~/.local/share/slurm-monitor` privately. Transfer only `enrollment/cluster-01.json` as `config.json`, plus `slurm/collector.py` and `slurm/setup-runtime.py`. Verify `squeuePath`/`sinfoPath` in the private config match `command -v squeue` and `command -v sinfo`. In a multi-login-node cluster choose an authorized stable node; avoid starting duplicate collectors through a round-robin SSH hostname.
+On the permitted collector node, create `~/.local/share/slurm-monitor` privately. Transfer only `enrollment/cluster-01.json` as `config.json`, plus `slurm/collector.py` and `slurm/setup-runtime.py`. Verify `squeuePath`/`sinfoPath`/`ssharePath` in the private config match `command -v squeue`, `command -v sinfo` and `command -v sshare`. `sshare` supplies the optional per-user FairShare table; set `"fairshare": false` to skip it if the site disallows the query. In a multi-login-node cluster choose an authorized stable node; avoid starting duplicate collectors through a round-robin SSH hostname.
 
 ```sh
 cd "$HOME/.local/share/slurm-monitor"
@@ -150,7 +150,7 @@ python3 setup-runtime.py
 ./pm2.sh logs slurm-reporter --lines 30 --nostream
 ```
 
-The runtime helper downloads a checksum-verified Linux Node 22 binary and installs isolated PM2. It creates no boot hooks. It uses `/usr/bin/python3`; adjust the generated `interpreter` if the site's supported Python 3.10+ is elsewhere. Queries use `squeue` and `sinfo`, not training jobs. Browser refreshes read the hub cache; they never increase scheduler polling. Wait/run timers advance locally between reports and freeze on stale/error samples. The queue badge counts all visible jobs, including running jobs.
+The runtime helper downloads a checksum-verified Linux Node 22 binary and installs isolated PM2. It creates no boot hooks. It uses `/usr/bin/python3`; adjust the generated `interpreter` if the site's supported Python 3.10+ is elsewhere. Queries use `squeue`, `sinfo` and (unless disabled) `sshare`, not training jobs. Browser refreshes read the hub cache; they never increase scheduler polling. Wait/run timers advance locally between reports and freeze on stale/error samples. The queue badge counts all visible jobs, including running jobs.
 
 ## 6. Persistence and recovery without root
 

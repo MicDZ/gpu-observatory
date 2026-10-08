@@ -19,9 +19,11 @@ export async function checkPassword(password, user) {
 export function createAccounts(config, file, now = Date.now) {
   let state = file && existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {
     version:1, users:[{id:'legacy-admin', username:config.username, passwordSalt:config.passwordSalt,
-      passwordHash:config.passwordHash, role:'admin', disabled:false, createdAt:now()}], devices:[], tickets:[]
+      passwordHash:config.passwordHash, role:'admin', disabled:false, createdAt:now()}], devices:[], slurmSources:[], tickets:[]
   };
+  if (!Array.isArray(state.slurmSources)) state.slurmSources = [];
   if (state.version !== 1 || !Array.isArray(state.users) || !Array.isArray(state.devices) || !Array.isArray(state.tickets) ||
+      !Array.isArray(state.slurmSources) || state.slurmSources.some(s => !s.id || !s.ownerId || typeof s.name !== 'string' || typeof s.collectorUser !== 'string') ||
       !state.users.some(u => u.role === 'admin' && !u.disabled) || state.users.some(u =>
         !u.id || !u.username || !['admin','user'].includes(u.role) || !/^[a-f0-9]{128}$/.test(u.passwordHash) || !/^[a-f0-9]{32,}$/.test(u.passwordSalt))) throw Error('Invalid accounts state');
   const persist = next => {
@@ -49,11 +51,23 @@ export function createAccounts(config, file, now = Date.now) {
     requireUser(uid); const d = device(hostId);
     if (!d || d.ownerId !== uid) throw fail(404,'设备不存在'); return d;
   };
+  const allSlurm = () => {
+    const sources = new Map((config.slurmSources || []).map(s => [s.id, {...s, ownerId:s.ownerId || 'legacy-admin', createdAt:s.createdAt ?? null}]));
+    for (const s of state.slurmSources) sources.set(s.id, s);
+    return [...sources.values()].filter(s => !s.deleted);
+  };
+  const slurmSource = sourceId => allSlurm().find(s => s.id === sourceId);
+  const ownSlurm = (uid, sourceId) => {
+    requireUser(uid); const s = slurmSource(sourceId);
+    if (!s || s.ownerId !== uid) throw fail(404,'Slurm 节点不存在'); return s;
+  };
+  const editSlurm = (next, s) => { next.slurmSources = next.slurmSources.filter(x => x.id !== s.id); next.slurmSources.push(s); };
   const editDevice = (next, d) => {
     next.devices = next.devices.filter(x => x.id !== d.id); next.devices.push(d);
   };
   return {
-    user, requireUser, device, allDevices,
+    user, requireUser, device, allDevices, slurmSource, allSlurm,
+    slurmSources: uid => allSlurm().filter(s => s.ownerId === uid),
     byName: name => state.users.find(u => u.username === name),
     users: () => state.users.map(safeUser),
     devices: uid => allDevices().filter(d => d.ownerId === uid),
@@ -102,21 +116,66 @@ export function createAccounts(config, file, now = Date.now) {
       editDevice(next,{id:d.id,ownerId:uid,deleted:true});
       next.tickets=next.tickets.filter(t=>t.hostId!==hostId);persist(next);
     },
+    addSlurm(uid, name, options = {}) {
+      requireUser(uid);
+      if (typeof name!=='string' || !name.trim() || name.length>80 || /[\u0000-\u001f\u007f]/.test(name)) throw fail(400,'Slurm 名称需要为 1–80 个字符');
+      const collectorUser = options.collectorUser;
+      if (typeof collectorUser!=='string' || !/^[A-Za-z0-9][A-Za-z0-9._@-]{0,79}$/.test(collectorUser)) throw fail(400,'采集账号格式不正确');
+      const scope = options.scope ?? 'mine';
+      if (!['mine','visible'].includes(scope)) throw fail(400,'可见范围无效');
+      const visibility = options.visibility ?? 'account-visible';
+      if (!['account-visible','private-jobs'].includes(visibility)) throw fail(400,'可见性无效');
+      const intervalSeconds = Number(options.intervalSeconds ?? 60);
+      if (!Number.isInteger(intervalSeconds) || intervalSeconds < 60 || intervalSeconds > 3600) throw fail(400,'采集间隔需要为 60–3600 秒');
+      if (allSlurm().filter(s=>s.ownerId===uid).length>=50) throw fail(400,'Slurm 节点数量已达上限');
+      const entry={id:id('slurm-'),name:name.trim(),ownerId:uid,tokenHash:null,collectorUser,scope,visibility,intervalSeconds,createdAt:now()};
+      const next=structuredClone(state);next.slurmSources.push(entry);persist(next);return entry;
+    },
+    renameSlurm(uid, sourceId, name) {
+      const s=ownSlurm(uid,sourceId);
+      if (typeof name!=='string'||!name.trim()||name.length>80||/[\u0000-\u001f\u007f]/.test(name)) throw fail(400,'Slurm 名称需要为 1–80 个字符');
+      const next=structuredClone(state);editSlurm(next,{...s,name:name.trim()});persist(next);
+    },
+    deleteSlurm(uid, sourceId) {
+      const s=ownSlurm(uid,sourceId),next=structuredClone(state);
+      editSlurm(next,{id:s.id,ownerId:uid,deleted:true});
+      next.tickets=next.tickets.filter(t=>t.hostId!==sourceId);persist(next);
+    },
+    issueSlurmTicket(uid, sourceId, boot=false) {
+      ownSlurm(uid,sourceId);if(typeof boot!=='boolean')throw fail(400,'参数无效');
+      const token=randomBytes(32).toString('base64url'),expiresAt=now()+15*60000,next=structuredClone(state);
+      next.tickets=next.tickets.filter(t=>t.hostId!==sourceId&&t.expiresAt>now());
+      next.tickets.push({hash:hash(token),ownerId:uid,hostId:sourceId,kind:'slurm',expiresAt,boot,origin:config.publicOrigin});persist(next);
+      return {token,expiresAt};
+    },
+    claimSlurm(token) {
+      const ticket=this.ticket(token);
+      if(ticket.kind!=='slurm')throw fail(410,'安装链接已失效，请重新生成');
+      const s=ownSlurm(ticket.ownerId,ticket.hostId),reportToken=randomBytes(32).toString('base64url');
+      const next=structuredClone(state);next.tickets=next.tickets.filter(t=>t.hash!==ticket.hash);
+      editSlurm(next,{...s,tokenHash:hash(reportToken),enrolledAt:now()});persist(next);
+      return {sourceId:s.id,url:config.publicOrigin+'/api/slurm/ingest',token:reportToken,
+        scope:s.scope,visibility:s.visibility,intervalSeconds:s.intervalSeconds,
+        squeuePath:'/usr/bin/squeue',sinfoPath:'/usr/bin/sinfo',ssharePath:'/usr/bin/sshare'};
+    },
     issueTicket(uid, hostId, boot=false) {
       ownDevice(uid,hostId);if(typeof boot!=='boolean')throw fail(400,'参数无效');
       const token=randomBytes(32).toString('base64url'),expiresAt=now()+15*60000,next=structuredClone(state);
       next.tickets=next.tickets.filter(t=>t.hostId!==hostId&&t.expiresAt>now());
-      next.tickets.push({hash:hash(token),ownerId:uid,hostId,expiresAt,boot,origin:config.publicOrigin});persist(next);
+      next.tickets.push({hash:hash(token),ownerId:uid,hostId,kind:'device',expiresAt,boot,origin:config.publicOrigin});persist(next);
       return {token,expiresAt};
     },
     ticket(token) {
       if(typeof token!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(token))throw fail(410,'安装链接已失效，请重新生成');
       const ticket=state.tickets.find(t=>t.hash===hash(token)&&t.expiresAt>now()&&t.origin===config.publicOrigin);
       if(!ticket||!user(ticket.ownerId))throw fail(410,'安装链接已失效，请重新生成');
-      ownDevice(ticket.ownerId,ticket.hostId);return ticket;
+      if(ticket.kind==='slurm')ownSlurm(ticket.ownerId,ticket.hostId);else ownDevice(ticket.ownerId,ticket.hostId);
+      return ticket;
     },
     claim(token) {
-      const ticket=this.ticket(token),d=ownDevice(ticket.ownerId,ticket.hostId),reportToken=randomBytes(32).toString('base64url');
+      const ticket=this.ticket(token);
+      if(ticket.kind==='slurm')throw fail(410,'安装链接已失效，请重新生成');
+      const d=ownDevice(ticket.ownerId,ticket.hostId),reportToken=randomBytes(32).toString('base64url');
       const next=structuredClone(state);next.tickets=next.tickets.filter(t=>t.hash!==ticket.hash);
       editDevice(next,{...d,tokenHash:hash(reportToken),enrolledAt:now()});persist(next);
       return {hostId:d.id,url:config.publicOrigin+'/api/ingest',token:reportToken,interval:5};

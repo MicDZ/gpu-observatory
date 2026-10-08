@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only GPU, CPU and RAM snapshots; one HTTPS report every five seconds."""
+"""Read-only GPU, CPU, RAM and local disk snapshots; one HTTPS report every five seconds."""
 import argparse
 import json
 import math
@@ -42,7 +42,7 @@ def collect():
                 'command': p.get('command'), 'gpuMemory': number(p.get('gpu_memory_usage'))
             } for p in processes] if isinstance(processes, list) else [],
         })
-    return {'version': 1, 'agentVersion': '1.1.0', 'collectedAt': int(time.time() * 1000),
+    return {'version': 1, 'agentVersion': '1.3.0', 'collectedAt': int(time.time() * 1000),
             'hostname': socket.gethostname(), 'driverVersion': stats.get('driver_version'), 'gpus': gpus, 'error': None}
 
 
@@ -53,7 +53,7 @@ def sample():
                                 capture_output=True, timeout=12, text=True, check=True)
         return json.loads(result.stdout)
     except (subprocess.SubprocessError, ValueError, OSError):
-        return {'version': 1, 'agentVersion': '1.1.0', 'collectedAt': int(time.time() * 1000),
+        return {'version': 1, 'agentVersion': '1.3.0', 'collectedAt': int(time.time() * 1000),
                 'hostname': socket.gethostname(), 'gpus': [], 'error': 'GPU collection failed; check agent or driver'}
 
 
@@ -76,8 +76,15 @@ def main():
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             return None
     opener = urllib.request.build_opener(NoRedirect())
-    from system_sampler import SystemSampler
+    from system_sampler import DiskUsageSampler, SystemSampler
     system_sampler = None
+    disk_usage = DiskUsageSampler(
+        roots=config.get('diskUsageRoots'),
+        interval_seconds=config.get('diskUsageIntervalSeconds', 21600),
+        timeout_seconds=config.get('diskUsageTimeoutSeconds', 300),
+        budget_seconds=config.get('diskUsageBudgetSeconds', 1800),
+    )
+    disk_usage.start()
     interval = max(5, int(config.get('interval', 5)))
     failures = 0
     reports = 0
@@ -92,6 +99,7 @@ def main():
             if system_sampler is None:
                 system_sampler = SystemSampler()
             payload['system'] = system_sampler.sample()
+            payload['system'].update(disk_usage.snapshot())
         except Exception as error:
             # CPU/RAM failure must not suppress valid GPU metrics, or vice versa.
             payload['system'] = {'error': 'System collection failed (' + type(error).__name__ + ')'}
@@ -100,7 +108,7 @@ def main():
         payload['reportId'] = str(uuid.uuid4())
         request = urllib.request.Request(url, data=json.dumps(payload, allow_nan=False).encode(), method='POST', headers={
             'Content-Type': 'application/json', 'Authorization': 'Bearer ' + config['token'],
-            'X-Host-Id': config['hostId'], 'User-Agent': 'gpu-monitor-agent/1.1.0',
+            'X-Host-Id': config['hostId'], 'User-Agent': 'gpu-monitor-agent/1.3.0',
         })
         try:
             with opener.open(request, timeout=15) as response:

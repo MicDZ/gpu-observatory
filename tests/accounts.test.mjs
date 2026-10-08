@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {scryptSync,randomUUID} from 'node:crypto';
+import {scryptSync,randomUUID,createHash} from 'node:crypto';
 import {mkdtempSync,rmSync,readFileSync,statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -62,6 +62,76 @@ test('accounts isolate monitoring, Slurm and every device mutation; enrollment i
  assert.equal((await request('/api/ingest','POST',packet(d.id),null,{...auth,Authorization:'Bearer '+renewed.token})).status,401);
  assert.equal((await(await request('/api/snapshot','GET',null,a)).json()).hosts.length,0);
  const saved=readFileSync(config.accountsFile,'utf8');assert.ok(!saved.includes(token));assert.ok(!saved.includes(renewed.token));assert.equal(statSync(config.accountsFile).mode&0o777,0o600);
+});
+
+test('offline devices expose a one-click recovery command; waiting/online devices do not',async t=>{
+ const f=await fixture(t),{request,admin,config}=f;
+ const d=(await(await request('/api/devices','POST',{name:'Unit 1'},admin)).json()).device;
+ const link=await(await request('/api/devices/'+d.id+'/install','POST',{},admin)).json();
+ const enrollment=await(await request('/api/enroll','POST',{token:installToken(link)})).json();
+ const auth={Authorization:'Bearer '+enrollment.token,'X-Host-Id':d.id};
+ const device=async()=>(await(await request('/api/devices','GET',null,admin)).json()).devices.find(x=>x.id===d.id);
+ const waiting=await device();assert.equal(waiting.status,'waiting');assert.equal(waiting.recovery,null,'no recovery action before any report');
+ assert.equal((await request('/api/ingest','POST',packet(d.id),null,auth)).status,200);
+ const online=await device();assert.equal(online.status,'online');assert.equal(online.recovery,null,'no recovery action while healthy');
+ f.advance(31000);
+ const offline=await device();assert.equal(offline.status,'offline');
+ assert.ok(typeof offline.recovery==='string'&&offline.recovery.includes('startOrRestart'),'offline device gets a recovery command');
+ const dir=createHash('sha256').update(config.publicOrigin+'/'+d.id).digest('hex').slice(0,16);
+ assert.ok(offline.recovery.startsWith('R="$HOME/.local/share/gpu-agents/'+dir+'"'),'recovery targets the same per-device directory the installer uses');
+ assert.ok(offline.recovery.includes('.local/share/gpu-monitor'),'recovery falls back to the manual layout');
+ assert.equal(spawnSync('sh',['-n','-c',offline.recovery]).status,0,'recovery command is valid shell');
+ assert.ok(!offline.recovery.includes(enrollment.token),'recovery command carries no secret');
+ const bob=await f.addUser('bob'),b=await f.login('bob','safe-password-bob');
+ assert.deepEqual((await(await request('/api/devices','GET',null,b)).json()).devices,[],'other users cannot see the device or its recovery command');
+});
+
+test('Slurm sources can be added, installed, enrolled and recovered from the web UI',async t=>{
+ const f=await fixture(t),{request,admin}=f;
+ const s=(await(await request('/api/slurm-sources','POST',{name:'Demo cluster',collectorUser:'alice',scope:'mine'},admin)).json()).source;
+ assert.equal(s.collectorUser,'alice');assert.equal(s.scope,'mine');
+ const list=async()=>(await(await request('/api/slurm-sources','GET',null,admin)).json()).sources.find(x=>x.id===s.id);
+ const waiting=await list();assert.equal(waiting.status,'waiting');assert.equal(waiting.enrolled,false);assert.equal(waiting.recovery,null);
+ assert.equal((await request('/api/slurm-sources','POST',{name:'x',collectorUser:'bad user'},admin)).status,400);
+ const link=await(await request('/api/slurm-sources/'+s.id+'/install','POST',{},admin)).json();
+ assert.ok(link.url.includes('/install-slurm/'));assert.equal(spawnSync('bash',['-n','-c',link.command]).status,0);
+ const token=new URL(link.url).pathname.split('/').pop().replace('.py','');
+ const script=await(await request(new URL(link.url).pathname)).text();assert.ok(script.includes(token));
+ assert.equal(spawnSync('python3',['-c',"import sys; compile(sys.stdin.read(), '<installer>', 'exec')"],{input:script}).status,0);
+ const pkg=await(await request('/api/slurm-package')).json();
+ assert.deepEqual(Object.keys(pkg.files).sort(),['collector.py','setup-runtime.py']);
+ assert.ok(pkg.files['collector.py'].content.includes('squeue'));
+ const enrollment=await(await request('/api/slurm-enroll','POST',{token})).json();
+ assert.equal(enrollment.sourceId,s.id);assert.ok(enrollment.token);assert.equal(enrollment.scope,'mine');
+ const auth={Authorization:'Bearer '+enrollment.token,'X-Source-Id':s.id};
+ const packet={version:1,sourceId:s.id,reportId:randomUUID(),collectedAt:Date.now(),scope:'mine',jobs:[],partitions:[],error:null};
+ assert.equal((await request('/api/slurm/ingest','POST',packet,null,auth)).status,200);
+ const online=await list();assert.equal(online.status,'online');assert.equal(online.recovery,null);
+ f.advance(400000);
+ const offline=await list();assert.equal(offline.status,'offline');
+ assert.ok(offline.recovery.includes('startOrRestart'));
+ assert.ok(offline.recovery.startsWith('R="$HOME/.local/share/slurm-agents/'));
+ assert.ok(offline.recovery.includes('.local/share/slurm-monitor'));
+ assert.equal(spawnSync('sh',['-n','-c',offline.recovery]).status,0);
+ assert.ok(!offline.recovery.includes(enrollment.token));
+ assert.equal((await request('/api/slurm-sources/'+s.id,'PATCH',{name:'Renamed cluster'},admin)).status,200);
+ assert.equal((await list()).name,'Renamed cluster');
+ assert.equal((await request('/api/slurm-sources/'+s.id,'DELETE',null,admin)).status,200);
+ assert.equal(await list(),undefined);
+});
+
+test('Slurm and device enrollment tickets are not interchangeable',async t=>{
+ const f=await fixture(t),{request,admin}=f;
+ const d=(await(await request('/api/devices','POST',{name:'GPU'},admin)).json()).device;
+ const deviceLink=await(await request('/api/devices/'+d.id+'/install','POST',{},admin)).json();
+ const deviceToken=new URL(deviceLink.url).pathname.split('/').pop().replace('.py','');
+ const s=(await(await request('/api/slurm-sources','POST',{name:'Cluster',collectorUser:'alice'},admin)).json()).source;
+ const slurmLink=await(await request('/api/slurm-sources/'+s.id+'/install','POST',{},admin)).json();
+ const slurmToken=new URL(slurmLink.url).pathname.split('/').pop().replace('.py','');
+ assert.equal((await request('/api/slurm-enroll','POST',{token:deviceToken})).status,410);
+ assert.equal((await request('/api/enroll','POST',{token:slurmToken})).status,410);
+ assert.equal((await request('/install/'+slurmToken+'.py')).status,404);
+ assert.equal((await request('/install-slurm/'+deviceToken+'.py')).status,404);
 });
 
 test('migration, expiry, disabling and password changes survive restart without resurrecting deleted legacy devices',async t=>{

@@ -60,10 +60,15 @@ export function createMonitor(config, options = {}) {
   const agentPackage = Object.fromEntries(['agent.py','system_sampler.py','requirements.txt','deploy/setup-agent.py','deploy/setup-node.py'].map(name=>{
     const content=readFileSync(join(root,name),'utf8');return [name.split('/').pop(),{content,sha256:digest(content)}];
   }));
-  const sources = new Map((config.slurmSources || []).map(s => {
+  // Legacy CLI-enrolled Slurm sources are validated at startup; runtime lookups go
+  // through accounts so that sources added from the web UI are honoured too.
+  for (const s of config.slurmSources || []) {
     if (!s.id || !/^[a-f0-9]{64}$/.test(s.tokenHash || '') || !['mine','visible'].includes(s.scope) || !s.collectorUser) throw new Error('Invalid Slurm source configuration');
-    return [s.id, s];
+  }
+  const slurmPackage = Object.fromEntries(['slurm/collector.py','slurm/setup-runtime.py'].map(name=>{
+    const content=readFileSync(join(root,name),'utf8');return [name.split('/').pop(),{content,sha256:digest(content)}];
   }));
+  const slurmInstaller = readFileSync(join(root,'deploy/install-slurm.py'),'utf8');
   const slurmSnapshots = new Map(), slurmReports = new Map();
   const snapshots = new Map(), recentReports = new Map();
   const stateFile = config.stateFile;
@@ -76,7 +81,7 @@ export function createMonitor(config, options = {}) {
     for (const item of saved) if (hosts.has(item.id)) snapshots.set(item.id, item);
   }
   if (config.slurmStateFile && existsSync(config.slurmStateFile)) {
-    for (const item of JSON.parse(readFileSync(config.slurmStateFile, 'utf8'))) if (sources.has(item.id)) slurmSnapshots.set(item.id, item);
+    for (const item of JSON.parse(readFileSync(config.slurmStateFile, 'utf8'))) if (accounts.slurmSource(item.id)) slurmSnapshots.set(item.id, item);
   }
   function persistSlurm() {
     if (!config.slurmStateFile) return;
@@ -121,8 +126,9 @@ export function createMonitor(config, options = {}) {
     try { const body=JSON.parse(Buffer.concat(chunks).toString()); if(!body || typeof body!=='object' || Array.isArray(body)) throw Error('Expected object'); return body; } catch { throw Object.assign(new Error('Invalid JSON'), { status: 400 }); }
   }
   function originOK(req) { return req.headers.origin === config.publicOrigin; }
-  const manage = managementRoutes({accounts, actor, json, reply, originOK, invalidate, snapshots, now, origin:config.publicOrigin,
-    removeSnapshot:id=>{history?.removeHost(id);snapshots.delete(id);recentReports.delete(id);persist();}});
+  const manage = managementRoutes({accounts, actor, json, reply, originOK, invalidate, snapshots, slurmSnapshots, now, origin:config.publicOrigin,
+    removeSnapshot:id=>{history?.removeHost(id);snapshots.delete(id);recentReports.delete(id);persist();},
+    removeSlurmSnapshot:id=>{slurmSnapshots.delete(id);persistSlurm();}});
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -154,9 +160,25 @@ export function createMonitor(config, options = {}) {
       }
       if (await manage(req,res,path)) return;
       if (path === '/api/agent-package' && req.method === 'GET') return reply(res,200,{files:agentPackage});
+      if (path === '/api/slurm-package' && req.method === 'GET') return reply(res,200,{files:slurmPackage});
+      const slurmInstallMatch = /^\/install-slurm\/([A-Za-z0-9_-]{43})\.py$/.exec(path);
+      if (slurmInstallMatch && req.method === 'GET') {
+        const ticket=accounts.ticket(slurmInstallMatch[1]);
+        if(ticket.kind!=='slurm')return reply(res,404,{error:'Not found'});
+        const settings={origin:config.publicOrigin,token:slurmInstallMatch[1],sourceId:ticket.hostId};
+        res.setHeader('Content-Disposition','attachment; filename="install-slurm.py"');
+        return reply(res,200,slurmInstaller.replace('__SETTINGS_JSON__',JSON.stringify(JSON.stringify(settings))),'text/plain; charset=utf-8');
+      }
+      if(path==='/api/slurm-enroll'&&req.method==='POST'){
+        const ip=req.headers['cf-connecting-ip']||req.socket.remoteAddress;
+        if(!rate(loginLimits,'enroll:'+ip,30,60000))return reply(res,429,{error:'Too many attempts'});
+        const body=await json(req,4096);
+        return reply(res,201,accounts.claimSlurm(body.token));
+      }
       const installMatch = /^\/install\/([A-Za-z0-9_-]{43})\.py$/.exec(path);
       if (installMatch && req.method === 'GET') {
         const ticket=accounts.ticket(installMatch[1]);
+        if(ticket.kind==='slurm')return reply(res,404,{error:'Not found'});
         const settings={origin:config.publicOrigin,token:installMatch[1],hostId:ticket.hostId,boot:ticket.boot};
         res.setHeader('Content-Disposition','attachment; filename="install-agent.py"');
         return reply(res,200,installer.replace('__SETTINGS_JSON__',JSON.stringify(JSON.stringify(settings))),'text/plain; charset=utf-8');
@@ -169,7 +191,7 @@ export function createMonitor(config, options = {}) {
       }
 
       if (path === '/api/slurm/ingest' && req.method === 'POST') {
-        const source = sources.get(req.headers['x-source-id']), auth = req.headers.authorization || '';
+        const source = accounts.slurmSource(req.headers['x-source-id']), auth = req.headers.authorization || '';
         if (!source || !accounts.user(source.ownerId || 'legacy-admin') || !auth.startsWith('Bearer ') || !equal(digest(auth.slice(7)), source.tokenHash)) return reply(res, 401, { error: 'Unauthorized' });
         if (!rate(ingestLimits, 'slurm:' + source.id, 6, 60000)) return reply(res, 429, { error: 'Too many reports' });
         const body = await json(req, 4 * 1024 * 1024);
@@ -185,14 +207,16 @@ export function createMonitor(config, options = {}) {
         const receivedAt = now();
         const saved = { ...snapshot, id: source.id, receivedAt, lastSuccessfulAt: snapshot.error ? previous?.lastSuccessfulAt || null : receivedAt,
           jobSampledAt: snapshot.error ? previous?.jobSampledAt ?? previous?.lastSuccessfulAt ?? null : receivedAt - snapshot.queueAgeMs };
-        if (snapshot.error && previous) for (const k of ['jobs','partitions','counts','truncated']) saved[k] = previous[k];
+        if (snapshot.error && previous) for (const k of ['jobs','partitions','counts','truncated','users']) saved[k] = previous[k];
+        // A degraded report (queue ok, FairShare query failed) keeps the last good user rows.
+        else if (previous?.users?.length && snapshot.usersWarning && !snapshot.users.length) saved.users = previous.users;
         slurmSnapshots.set(source.id, saved); persistSlurm();
         return reply(res, 200, { ok: true });
       }
       if (path === '/api/slurm' && req.method === 'GET') {
         const user=actor(req); if (!user) return reply(res, 401, { error: 'Unauthorized' });
         const time = now();
-        return reply(res, 200, { serverTime: time, sources: [...sources.values()].filter(source => (source.ownerId || 'legacy-admin') === user.id).map(source => {
+        return reply(res, 200, { serverTime: time, sources: accounts.slurmSources(user.id).map(source => {
           const s = slurmSnapshots.get(source.id), interval = source.intervalSeconds || 60;
           return { id: source.id, name: source.name, collectorUser: source.collectorUser, scope: source.scope,
             visibility: source.visibility, intervalSeconds: interval, ...s,

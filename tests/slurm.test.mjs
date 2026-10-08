@@ -23,7 +23,7 @@ test('Slurm ingestion isolates source tokens, protects data, preserves last succ
   assert.equal((await req('/api/slurm/ingest',post({}, {'X-Source-Id':'cluster-demo',Authorization:'Bearer gpu-token'}))).status,401);
   assert.equal((await req('/api/ingest',post({}, {'X-Host-Id':'gpu',Authorization:'Bearer slurm-token'}))).status,401);
   assert.equal((await req('/api/slurm/ingest',post({sourceId:'other'},auth))).status,403);
-  const packet={version:1,sourceId:'cluster-demo',reportId:randomUUID(),collectedAt:Date.now(),scope:'visible',queueAgeMs:2000,jobs:[{jobId:'123',username:'alice',partition:'long',state:'PENDING',nodes:1,cpus:8,memory:'32G',elapsed:'0:00',elapsedSeconds:0,pendingSeconds:45,timeLimit:'1-00:00:00',priority:99,reason:'Resources',tres:'gres/gpu=2',command:'SHOULD NOT BE RETAINED',workDir:'/secret'}],partitions:[{name:'long',availability:'up',nodes:10,state:'mix-'}],error:null};
+  const packet={version:1,sourceId:'cluster-demo',reportId:randomUUID(),collectedAt:Date.now(),scope:'visible',queueAgeMs:2000,users:[{username:'alice',account:'faculty-ml',shares:100,normShares:0.25,rawUsage:4820000,effectvUsage:0.31,fairshare:0.52,levelFs:1.6,runGpuMinutes:12400,runCpuMinutes:198000,runningJobs:1,runningCpus:8,runningGpus:2}],jobs:[{jobId:'123',username:'alice',partition:'long',state:'PENDING',nodes:1,cpus:8,memory:'32G',elapsed:'0:00',elapsedSeconds:0,pendingSeconds:45,timeLimit:'1-00:00:00',priority:99,reason:'Resources',tres:'gres/gpu=2',command:'SHOULD NOT BE RETAINED',workDir:'/secret'}],partitions:[{name:'long',availability:'up',nodes:10,state:'mix-'}],error:null};
   assert.equal((await req('/api/slurm/ingest',post(packet,auth))).status,200);
   assert.equal((await req('/api/slurm/ingest',post(packet,auth))).status,409);
   const login=await req('/api/login',post({username:'admin',password},{Origin:config.publicOrigin}));
@@ -33,6 +33,9 @@ test('Slurm ingestion isolates source tokens, protects data, preserves last succ
   assert.equal(result.sources[0].status,'online');
   assert.equal(result.sources[0].jobSampledAt,clock-2000);
   assert.equal(result.sources[0].jobs[0].pendingSeconds,45);
+  assert.equal(result.sources[0].users[0].username,'alice');
+  assert.equal(result.sources[0].users[0].runningGpus,2);
+  assert.equal(result.sources[0].users[0].runGpuMinutes,12400);
   const sampledAt=result.sources[0].jobSampledAt;
   assert.ok(!JSON.stringify(result).includes('SHOULD NOT BE RETAINED'));
   assert.ok(!JSON.stringify(result).includes('tokenHash'));
@@ -41,6 +44,7 @@ test('Slurm ingestion isolates source tokens, protects data, preserves last succ
   result=await(await req('/api/slurm',{headers:{Cookie}})).json();
   assert.equal(result.sources[0].status,'error');assert.equal(result.sources[0].jobs[0].jobId,'123');
   assert.equal(result.sources[0].jobSampledAt,sampledAt,'error heartbeat must not reset the timing baseline');
+  assert.equal(result.sources[0].users[0].username,'alice','user rows survive an error heartbeat');
   clock+=181000;
   result=await(await req('/api/slurm',{headers:{Cookie}})).json();assert.equal(result.sources[0].status,'offline');
   const restarted=createMonitor(config,{now:()=>clock});restarted.listen(0,'127.0.0.1');await once(restarted,'listening');t.after(()=>restarted.close());
@@ -50,4 +54,11 @@ test('Slurm ingestion isolates source tokens, protects data, preserves last succ
   assert.equal(restored.sources[0].jobs[0].jobId,'123');assert.equal(restored.sources[0].status,'offline');
   assert.throws(()=>normalizeSlurm({...packet,scope:'mine',jobs:[{...packet.jobs[0],username:'someone-else'}]},{...source,scope:'mine'}));
   assert.throws(()=>normalizeSlurm({...packet,jobs:[packet.jobs[0],packet.jobs[0]]},source));
+  assert.equal(normalizeSlurm({...packet,users:undefined},source).users.length,0);
+  assert.throws(()=>normalizeSlurm({...packet,users:[{...packet.users[0],username:''}]},source));
+  assert.throws(()=>normalizeSlurm({...packet,users:[{...packet.users[0],rawUsage:-1}]},source));
+  assert.throws(()=>normalizeSlurm({...packet,users:[{...packet.users[0],runningGpus:1.5}]},source));
+  assert.throws(()=>normalizeSlurm({...packet,users:[packet.users[0],packet.users[0]]},source));
+  const scoped={...source,scope:'mine'};
+  assert.throws(()=>normalizeSlurm({...packet,scope:'mine',users:[{...packet.users[0],username:'someone-else'}]},scoped));
 });

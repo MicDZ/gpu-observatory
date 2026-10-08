@@ -26,9 +26,10 @@ Administrators create user accounts and can view a limited device inventory (own
 - **GPU:** usage, VRAM, temperature, power, users and processes; search, idle-only filtering and expandable rows.
 - **CPU:** total/per-core usage, load averages and top readable processes by user and PID.
 - **Memory:** RAM, available memory, cache, swap and top readable processes with usernames and RSS. RSS includes shared pages, so process totals are not a precise per-user share of host memory.
-- **Slurm:** optional account-visible jobs, pending/running counts, partitions, reasons, priority and wait/run times. Timers advance between collection intervals and stop extrapolating when data is stale.
+- **Disk:** local physical filesystem capacity, used/free space, utilization, mount point, device and read-only status. A best-effort per-user table scans readable shared-data roots (`/mnt/ssd`, `/mnt/data_*`, `/mnt/nas/*`) in the background and attributes top-level directory usage by owner. Network, temporary and permission-restricted paths are excluded or marked partial.
+- **Slurm:** optional account-visible jobs, pending/running counts, partitions, reasons, priority and wait/run times. A per-user table adds cluster-wide FairShare factors, normalized shares, decayed raw/effective usage and currently running GPU/CPU hours (converted from running TRES-minutes), sourced read-only from `sshare`. Timers advance between collection intervals and stop extrapolating when data is stale.
 - **Compact bilingual UI:** English and Chinese, mobile layout, preserved expansion state and installable PWA. Private metrics are never cached for offline use.
-- **Push architecture:** reporters need only outbound HTTPS. Five-second GPU/CPU/RAM reports; Slurm polling is at least 60 seconds. No inbound SSH polling by the hub.
+- **Push architecture:** reporters need only outbound HTTPS. Five-second GPU/CPU/RAM/disk reports; Slurm polling is at least 60 seconds. No inbound SSH polling by the hub.
 - **Private by default:** password login, source-bound reporter tokens, strict origin checks, rate limits and loopback-only hub binding. User-space PM2 deployment requires no sudo.
 
 ## You need a central server
@@ -117,9 +118,11 @@ Read the generated login credential file privately. Transfer only that host's en
 </details>
 
 <details>
-<summary><strong>Slurm — visible jobs, queue reasons and live durations</strong></summary>
+<summary><strong>Slurm — visible jobs, queue reasons, live durations and per-user FairShare</strong></summary>
 
 ![Synthetic Slurm queue with pending and running jobs](docs/images/slurm.png)
+
+The per-user panel uses the scheduler's own association data. It is read-only telemetry and never submits, holds or cancels jobs.
 
 </details>
 

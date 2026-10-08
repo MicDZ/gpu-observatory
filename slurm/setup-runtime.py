@@ -8,9 +8,10 @@ import platform
 import re
 import shlex
 import subprocess
+import sys
 import urllib.request
 
-root = Path.home() / '.local/share/slurm-monitor'
+root = Path(os.environ.get('SLURM_MONITOR_ROOT', str(Path.home() / '.local/share/slurm-monitor'))).expanduser().resolve()
 root.mkdir(parents=True, exist_ok=True)
 root.chmod(0o700)
 node = root / 'node/bin/node'
@@ -37,9 +38,15 @@ if not pm2.exists():
                     '--ignore-scripts','--no-audit','--no-fund'],env=env,check=True)
 for path in [root/'logs',root/'pm2']:
     path.mkdir(mode=0o700,exist_ok=True)
+# The interpreter must be able to import http.client/urllib; the site's /usr/bin/python3
+# is not always complete, so prefer the interpreter running this helper unless overridden.
+interpreter = os.environ.get('SLURM_PYTHON') or sys.executable or '/usr/bin/python3'
+probe = subprocess.run([interpreter, '-c', 'import http.client, urllib.request'], capture_output=True, text=True)
+if probe.returncode:
+    raise SystemExit('Interpreter ' + interpreter + ' cannot import http.client/urllib.request; set SLURM_PYTHON to a Python 3.10+ build')
 config = root/'config.json'
 config.chmod(0o600)
-ecosystem = {'apps':[{'name':'slurm-reporter','script':str(root/'collector.py'),'interpreter':'/usr/bin/python3',
+ecosystem = {'apps':[{'name':'slurm-reporter','script':str(root/'collector.py'),'interpreter':interpreter,
  'args':['--config',str(config)],'cwd':str(root),'autorestart':True,'restart_delay':60000,
  'max_memory_restart':'150M','kill_timeout':5000,'time':True,
  'out_file':str(root/'logs/reporter-out.log'),'error_file':str(root/'logs/reporter-error.log'),
@@ -48,4 +55,7 @@ ecosystem = {'apps':[{'name':'slurm-reporter','script':str(root/'collector.py'),
 helper = root/'pm2.sh'
 helper.write_text('#!/bin/sh\nexport PATH='+shlex.quote(str(root/'node/bin')+':/usr/bin:/bin')+'\nexport PM2_HOME='+shlex.quote(str(root/'pm2'))+'\nexec '+shlex.quote(str(node))+' '+shlex.quote(str(pm2))+' "$@"\n')
 helper.chmod(0o700)
-print('User-local runtime and PM2 configuration prepared. No linger, cron, systemd, or shell-startup changes made.')
+# Bring the reporter up immediately (idempotent) so one command completes the install.
+subprocess.run([node, str(pm2), 'startOrRestart', str(root/'ecosystem.json')], check=True, env=env)
+subprocess.run([node, str(pm2), 'save'], check=True, env=env)
+print('Slurm reporter runtime ready and started under ' + str(root) + '; no linger, cron, systemd, or shell-startup changes made.')

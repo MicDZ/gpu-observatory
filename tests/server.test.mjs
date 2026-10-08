@@ -30,7 +30,7 @@ test('authentication, host isolation, schema validation, stale data and restart 
   assert.equal((await req('/api/ingest', post({ hostId: 'host-b' }, auth))).status, 403);
   assert.equal((await req('/api/ingest', post({ hostId: 'host-a' }, auth))).status, 400);
   const packet = { version: 1, hostId: 'host-a', reportId: randomUUID(), collectedAt: Date.now(), hostname: 'alpha',
-    system: {collectedAt:Date.now(),sampleSeconds:5,cpu:{logicalCores:2,physicalCores:1,percent:25,perCore:[20,30],loadAverage:[0,0,0]},memory:{total:16384,available:8192,swapTotal:0,swapUsed:0},processCount:3,restrictedProcesses:0,topCpuProcesses:[],topMemoryProcesses:[],error:null},
+    system: {collectedAt:Date.now(),sampleSeconds:5,cpu:{logicalCores:2,physicalCores:1,percent:25,perCore:[20,30],loadAverage:[0,0,0]},memory:{total:16384,available:8192,swapTotal:0,swapUsed:0},disks:[{device:'/dev/sda2',mountpoint:'/',fstype:'ext4',total:1000,free:250}],diskError:null,diskUsers:[{username:'alice',bytes:750,paths:1,partial:false}],diskUsersAt:Date.now()-1000,diskUsersPartial:false,diskUsersScanning:false,diskUsersError:null,diskUsersRoots:['/mnt/ssd'],processCount:3,restrictedProcesses:0,topCpuProcesses:[],topMemoryProcesses:[],error:null},
     gpus: [{ uuid: 'GPU-a', index: 0, name: 'NVIDIA Test', utilization: 71, memoryUsed: 2048, memoryTotal: 8192,
       processesAvailable: true, processes: [{ pid: 1234, username: '<script>test</script>', command: 'python', gpuMemory: 2048 }] }] };
   assert.equal((await req('/api/ingest', post(packet, auth))).status, 200);
@@ -50,6 +50,8 @@ test('authentication, host isolation, schema validation, stale data and restart 
   assert.equal(state.hosts[0].status, 'online');
   assert.equal(state.hosts[0].systemStatus, 'online');
   assert.equal(state.hosts[0].system.memory.percent, 50);
+  assert.equal(state.hosts[0].system.disks[0].percent, 75);
+  assert.equal(state.hosts[0].system.diskUsers[0].username, 'alice');
   assert.ok(state.hosts[0].clockSkewSeconds >= 299);
   assert.equal(state.hosts[1].status, 'waiting');
   assert.equal(state.hosts[0].gpus[0].processes[0].pid, 1234);
@@ -76,5 +78,7 @@ test('authentication, host isolation, schema validation, stale data and restart 
   assert.equal(restored.hosts[0].status, 'offline', 'saved data does not become live after restart');
   assert.equal(restored.hosts[0].systemStatus, 'offline');
   assert.equal(restored.hosts[0].system.cpu.percent, 25);
+  assert.equal(restored.hosts[0].system.disks[0].free, 250);
+  assert.equal(restored.hosts[0].system.diskUsers[0].bytes, 750);
   assert.equal(restored.hosts[0].gpus[0].processes[0].pid, 1234);
 });

@@ -86,6 +86,10 @@ def main():
     config = request_json(origin, '/api/enroll', {'token': SETTINGS['token']})
     if config.get('hostId') != host_id or config.get('url') != origin + '/api/ingest' or not isinstance(config.get('token'), str):
         raise RuntimeError('Unexpected enrollment response')
+    config.setdefault('diskUsageRoots', ['/mnt/ssd', '/mnt/data_*', '/mnt/nas/*'])
+    config.setdefault('diskUsageIntervalSeconds', 21600)
+    config.setdefault('diskUsageTimeoutSeconds', 300)
+    config.setdefault('diskUsageBudgetSeconds', 1800)
     temp = root / 'agent-config.json.tmp'
     temp.write_text(json.dumps(config, indent=2) + '\n')
     temp.chmod(0o600)

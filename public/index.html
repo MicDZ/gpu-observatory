@@ -8,7 +8,7 @@
     <div class="top-actions"><div class="live"><span id="live-dot" class="dot"></span><span id="refresh-state"><span data-i18n="连接中…">连接中…</span></span></div><span id="account">—</span><a class="ghost" href="/devices" data-i18n="我的设备">我的设备</a><select class="language-switch" data-language-switch aria-label="语言" data-i18n-aria-label="语言"><option value="zh">中文</option><option value="en">English</option></select><button class="install-app" data-install-app type="button"><span data-i18n="安装应用">安装应用</span></button><button id="logout" class="ghost"><span data-i18n="退出">退出</span></button></div>
   </header>
   <main>
-    <nav class="view-tabs" aria-label="监控视图" data-i18n-aria-label="监控视图"><button id="view-gpu" class="view-tab selected" aria-pressed="true"><span data-i18n="GPU 概览">GPU 概览</span></button><button id="view-cpu" class="view-tab" aria-pressed="false">CPU</button><button id="view-memory" class="view-tab" aria-pressed="false"><span data-i18n="内存">内存</span></button><button id="view-slurm" class="view-tab" aria-pressed="false"><span data-i18n="Slurm 队列">Slurm 队列</span> <span id="slurm-tab-count" class="count">—</span></button><button id="view-history" class="view-tab" aria-pressed="false"><span data-i18n="历史分析">历史分析</span></button></nav>
+    <nav class="view-tabs" aria-label="监控视图" data-i18n-aria-label="监控视图"><button id="view-gpu" class="view-tab selected" aria-pressed="true"><span data-i18n="GPU 概览">GPU 概览</span></button><button id="view-cpu" class="view-tab" aria-pressed="false">CPU</button><button id="view-memory" class="view-tab" aria-pressed="false"><span data-i18n="内存">内存</span></button><button id="view-disk" class="view-tab" aria-pressed="false"><span data-i18n="硬盘">硬盘</span></button><button id="view-slurm" class="view-tab" aria-pressed="false"><span data-i18n="Slurm 队列">Slurm 队列</span> <span id="slurm-tab-count" class="count">—</span></button><button id="view-history" class="view-tab" aria-pressed="false"><span data-i18n="历史分析">历史分析</span></button></nav>
     <div id="gpu-panel">
     <section class="summary" aria-label="集群摘要" data-i18n-aria-label="集群摘要">
       <div><span><span data-i18n="主机">主机</span></span><strong id="stat-hosts">—</strong></div>
@@ -41,6 +41,12 @@
       <div class="resource-toolbar"><input id="memory-search" type="search" aria-label="搜索内存主机、用户或进程" data-i18n-aria-label="搜索内存主机、用户或进程" placeholder="主机 / 用户 / 进程 / PID" data-i18n-placeholder="主机 / 用户 / 进程 / PID"><span><span data-i18n="系统 RAM · 每 5 秒更新">系统 RAM · 每 5 秒更新</span></span></div>
       <div id="memory-hosts" class="resource-hosts"><p class="empty"><span data-i18n="等待主机数据…">等待主机数据…</span></p></div>
       <footer class="page-foot"><span><span data-i18n="已用 = 总量 − 可用量；进程 RSS 含共享页，不能直接相加作为主机已用内存。">已用 = 总量 − 可用量；进程 RSS 含共享页，不能直接相加作为主机已用内存。</span></span><span><span data-i18n="仅已接入的 GPU 主机">仅已接入的 GPU 主机</span></span></footer>
+    </section>
+    <section id="disk-panel" aria-label="硬盘使用情况" data-i18n-aria-label="硬盘使用情况" hidden>
+      <div class="resource-summary" id="disk-summary"></div>
+      <div class="resource-toolbar"><input id="disk-search" type="search" aria-label="搜索硬盘主机、挂载点或设备" data-i18n-aria-label="搜索硬盘主机、挂载点或设备" placeholder="主机 / 挂载点 / 设备" data-i18n-placeholder="主机 / 挂载点 / 设备"><span><span data-i18n="本地文件系统 · 每 5 秒更新">本地文件系统 · 每 5 秒更新</span></span></div>
+      <div id="disk-hosts" class="resource-hosts"><p class="empty"><span data-i18n="等待主机数据…">等待主机数据…</span></p></div>
+      <footer class="page-foot"><span><span data-i18n="仅统计本地物理文件系统；网络挂载和临时文件系统不纳入容量汇总。">仅统计本地物理文件系统；网络挂载和临时文件系统不纳入容量汇总。</span></span><span><span data-i18n="仅已接入的 GPU 主机">仅已接入的 GPU 主机</span></span></footer>
     </section>
     <section id="slurm-panel" aria-label="Slurm 队列" data-i18n-aria-label="Slurm 队列" hidden>
       <div id="slurm-fetch-error" class="notice" role="status" hidden></div>

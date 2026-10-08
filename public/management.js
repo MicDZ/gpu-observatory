@@ -3,7 +3,7 @@
   const $=id=>document.getElementById(id),T=(key,values)=>window.I18n.t(key,values);
   const node=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
   let inventory=[],inventoryLoaded=false,inventoryLoading=false;
-  let me,devices=[],users=[],installation=null,action=null,loading=false;
+  let me,devices=[],slurmSources=[],users=[],installation=null,action=null,loading=false;
   async function api(path,method='GET',body){
     const response=await fetch(path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,cache:'no-store'});
     if(response.status===401){location.replace('/');throw Error('请重新登录');}
@@ -21,12 +21,33 @@
       head.append(node('h2','',d.name),node('span','badge device-status '+d.status,T({online:'在线',offline:'离线',waiting:'待接入',error:'采集异常'}[d.status]||'待接入')));
       const meta=node('div','device-meta');meta.append(node('span','',T('GPU 数量：{count}',{count:d.gpuCount})),node('span','',d.enrolled?T('已注册上报端'):T('等待安装')));
       const actions=node('div','device-actions');
-      actions.append(button(d.enrolled?'重新生成安装链接':'生成安装链接',()=>openAction({title:'生成安装链接',description:'新链接会替换旧链接。重新安装成功后，旧上报凭据才会失效。',boot:true,run:async()=>showInstall(d,await api('/api/devices/'+encodeURIComponent(d.id)+'/install','POST',{boot:$('action-boot').checked}))})),
+      if(d.recovery)actions.append(button('一键恢复',()=>openRecovery(d.name,d.recovery),'primary'));
+      actions.append(button(d.enrolled?'重新生成安装链接':'生成安装链接',()=>openAction({title:'生成安装链接',description:'新链接会替换旧链接。重新安装成功后，旧上报凭据才会失效。',boot:true,run:async()=>showInstall(d.name,await api('/api/devices/'+encodeURIComponent(d.id)+'/install','POST',{boot:$('action-boot').checked}))})),
         button('重命名',()=>openAction({title:'重命名',label:'设备名称',value:d.name,run:async value=>api('/api/devices/'+encodeURIComponent(d.id),'PATCH',{name:value})})),
         button('移除设备',()=>openAction({title:'移除设备',description:'移除后会撤销上报凭据并删除中心快照。远端进程需要自行停止。',run:async()=>api('/api/devices/'+encodeURIComponent(d.id),'DELETE')}),'small-button danger'));
       card.append(head,meta,actions);root.append(card);
     }
     $('device-list').replaceChildren(root);
+  }
+  function renderSlurm(){
+    const root=document.createDocumentFragment();
+    if(!slurmSources.length)root.append(node('p','device-empty',T('还没有 Slurm 节点。添加一个登录节点开始采集队列。')));
+    for(const s of slurmSources){
+      const card=node('article','device-card'),head=node('div','section-heading');
+      head.append(node('h2','',s.name),node('span','badge device-status '+s.status,T({online:'在线',offline:'离线',waiting:'待接入',error:'采集异常'}[s.status]||'待接入')));
+      const meta=node('div','device-meta');
+      meta.append(node('span','',T('采集账号：{user}',{user:s.collectorUser})),
+        node('span','',T(s.scope==='visible'?'账号可见队列':'仅自己的作业')),
+        node('span','',T('每 {seconds} 秒采集',{seconds:s.intervalSeconds})),
+        node('span','',s.enrolled?T('已注册采集器'):T('等待安装')));
+      const actions=node('div','device-actions');
+      if(s.recovery)actions.append(button('一键恢复',()=>openRecovery(s.name,s.recovery),'primary'));
+      actions.append(button(s.enrolled?'重新生成安装命令':'生成安装命令',()=>openAction({title:'生成 Slurm 安装命令',description:'新命令会替换旧凭据；重新安装成功后旧采集凭据才会失效。',run:async()=>showInstall(s.name,await api('/api/slurm-sources/'+encodeURIComponent(s.id)+'/install','POST',{}))})),
+        button('重命名',()=>openAction({title:'重命名',label:'Slurm 名称',value:s.name,run:async value=>api('/api/slurm-sources/'+encodeURIComponent(s.id),'PATCH',{name:value})})),
+        button('移除节点',()=>openAction({title:'移除 Slurm 节点',description:'移除后会撤销采集凭据并删除中心快照。远端采集进程需要自行停止。',run:async()=>api('/api/slurm-sources/'+encodeURIComponent(s.id),'DELETE')}),'small-button danger'));
+      card.append(head,meta,actions);root.append(card);
+    }
+    $('slurm-list').replaceChildren(root);
   }
   function renderUsers(){
     const root=document.createDocumentFragment();
@@ -59,6 +80,7 @@
     try{
       if(!me){me=(await api('/api/me')).user;$('identity').textContent=me.username;$('users-section').hidden=me.role!=='admin';}
       devices=(await api('/api/devices')).devices;renderDevices();
+      slurmSources=(await api('/api/slurm-sources')).sources;renderSlurm();
       if(me.role==='admin'){users=(await api('/api/users')).users;renderUsers();if(!inventoryLoaded)await loadInventory();}
     }catch(error){message(error);}finally{loading=false;}
   }
@@ -69,8 +91,14 @@
     $('action-boot-label').hidden=!value.boot;$('action-boot').checked=false;
     $('action-form').querySelector('.error').textContent='';$('action-dialog').showModal();
   }
-  function showInstall(device,result){
-    installation=result;$('copy-command').textContent=T('复制安装命令');$('copy-link').textContent=T('复制安装链接');$('install-device').textContent=device.name;$('install-command').value=result.command;
+  function openRecovery(name,command){
+    $('recovery-device').textContent=name;
+    $('recovery-command').value=command||'';
+    $('recovery-dialog').querySelector('.error').textContent='';
+    $('recovery-dialog').showModal();
+  }
+  function showInstall(name,result){
+    installation=result;$('copy-command').textContent=T('复制安装命令');$('copy-link').textContent=T('复制安装链接');$('install-device').textContent=name;$('install-command').value=result.command;
     $('install-expiry').textContent=T('过期时间：{time}',{time:new Date(result.expiresAt).toLocaleString(window.I18n.locale())});
     $('install-dialog').querySelector('.error').textContent='';$('install-dialog').showModal();
   }
@@ -83,12 +111,18 @@
   }
   for(const b of document.querySelectorAll('.close-dialog'))b.addEventListener('click',()=>b.closest('dialog').close());
   $('install-dialog').addEventListener('close',()=>{installation=null;$('install-command').value='';});
+  $('recovery-dialog').addEventListener('close',()=>{$('recovery-command').value='';$('copy-recovery').textContent=T('复制恢复命令');});
   $('add-device').addEventListener('click',()=>{$('device-form').reset();$('device-form').querySelector('.error').textContent='';$('device-dialog').showModal();});
   $('device-form').addEventListener('submit',event=>{event.preventDefault();submit(event.currentTarget,async()=>{
     const form=new FormData(event.currentTarget),d=(await api('/api/devices','POST',{name:form.get('name')})).device;
-    $('device-dialog').close();showInstall(d,await api('/api/devices/'+d.id+'/install','POST',{boot:form.get('boot')==='on'}));
+    $('device-dialog').close();showInstall(d.name,await api('/api/devices/'+d.id+'/install','POST',{boot:form.get('boot')==='on'}));
   });});
   $('action-form').addEventListener('submit',event=>{event.preventDefault();submit(event.currentTarget,async()=>{const current=action;await current.run($('action-input').value);$('action-dialog').close();});});
+  $('add-slurm').addEventListener('click',()=>{$('slurm-form').reset();$('slurm-form').querySelector('.error').textContent='';$('slurm-dialog').showModal();});
+  $('slurm-form').addEventListener('submit',event=>{event.preventDefault();const form=event.currentTarget;submit(form,async()=>{
+    const data=Object.fromEntries(new FormData(form)),s=(await api('/api/slurm-sources','POST',data)).source;
+    form.reset();$('slurm-dialog').close();showInstall(s.name,await api('/api/slurm-sources/'+encodeURIComponent(s.id)+'/install','POST',{}));
+  });});
   $('add-user').addEventListener('click',()=>{$('user-form').reset();$('user-form').querySelector('.error').textContent='';$('user-dialog').showModal();});
   $('user-form').addEventListener('submit',event=>{event.preventDefault();const form=event.currentTarget;submit(form,async()=>{await api('/api/users','POST',Object.fromEntries(new FormData(form)));form.reset();$('user-dialog').close();});});
   $('password-form').addEventListener('submit',event=>{event.preventDefault();submit(event.currentTarget,async()=>{await api('/api/me/password','POST',Object.fromEntries(new FormData(event.currentTarget)));location.replace('/');});});
@@ -97,7 +131,12 @@
     try{await navigator.clipboard.writeText(installation[key]);$(id).textContent=T('已复制');}
     catch{window.I18n.bind($('install-dialog').querySelector('.error'),'无法自动复制，请手动选择并复制安装命令');$('install-command').focus();$('install-command').select();}
   });
+  $('copy-recovery').addEventListener('click',async()=>{
+    const field=$('recovery-command');
+    try{await navigator.clipboard.writeText(field.value);$('copy-recovery').textContent=T('已复制');}
+    catch{window.I18n.bind($('recovery-dialog').querySelector('.error'),'无法自动复制，请手动选择并复制恢复命令');field.focus();field.select();}
+  });
   $('sign-out').addEventListener('click',async()=>{try{await api('/api/logout','POST',{});location.replace('/');}catch(error){message(error);}});
-  document.addEventListener('ui-language',()=>{renderDevices();if(me?.role==='admin'){renderUsers();renderInventory();}if(installation)$('install-expiry').textContent=T('过期时间：{time}',{time:new Date(installation.expiresAt).toLocaleString(window.I18n.locale())});});
+  document.addEventListener('ui-language',()=>{renderDevices();renderSlurm();if(me?.role==='admin'){renderUsers();renderInventory();}if(installation)$('install-expiry').textContent=T('过期时间：{time}',{time:new Date(installation.expiresAt).toLocaleString(window.I18n.locale())});});
   load();setInterval(load,15000);
 })();
